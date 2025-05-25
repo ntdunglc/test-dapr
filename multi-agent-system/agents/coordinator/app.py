@@ -182,7 +182,21 @@ async def broadcast_job_update(job_data: dict):
         try:
             await websocket.send_json(message)
         except:
+            # Handle potential errors during send, e.g., client disconnected
             pass
+
+async def broadcast_chat_message_to_clients(chat_message_data: dict):
+    """Broadcasts a chat message to all connected WebSocket clients."""
+    message_to_send = {
+        "type": "chat_message",
+        "data": chat_message_data
+    }
+    for client_id, websocket in websocket_connections.items():
+        try:
+            await websocket.send_json(message_to_send)
+        except Exception as e:
+            print(f"Error sending chat message to client {client_id}: {e}")
+            # Potentially remove dead connections from websocket_connections here
 
 async def publish_chat_message(sender_id: str, content: str):
     """Publish chat message to all agents"""
@@ -213,6 +227,13 @@ async def handle_job_completed(event):
     
     # Broadcast update
     await broadcast_job_update(job_data)
+
+@dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
+async def handle_incoming_chat_message(event):
+    """Handle incoming chat messages from pub/sub and broadcast to WebSocket clients."""
+    chat_data = event.data # This is already a dict
+    print(f"Coordinator received chat message from pub/sub: {chat_data}")
+    await broadcast_chat_message_to_clients(chat_data)
 
 # Authentication Endpoints
 @app.post("/auth/login")
