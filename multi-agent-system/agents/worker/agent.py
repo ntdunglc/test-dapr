@@ -415,9 +415,9 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for session {incoming_session_id}")
                 
                 current_dapr_agent = dapr_agent_instances[incoming_session_id]
-                print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm}'.")
+                print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm_input}'.")
                 
-                agent_response = await current_dapr_agent.run(content_for_llm)
+                agent_response = await current_dapr_agent.run(content_for_llm_input)
                 
                 if isinstance(agent_response, str):
                     llm_reply_text = agent_response
