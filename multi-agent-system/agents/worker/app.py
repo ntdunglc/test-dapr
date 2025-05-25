@@ -34,40 +34,6 @@ async def _register_with_coordinator(): # Renamed and made internal
 # Note: DaprApp subscriptions are typically discovered at import time or when DaprApp is initialized.
 # Ensure dapr_app is initialized after 'app = FastAPI(lifespan=lifespan)' if it depends on app instance.
 
-@dapr_app.subscribe(pubsub="pubsub", topic="job-queue")
-async def process_job(event):
-    """Process incoming jobs"""
-    job_data = event.data
-    
-    print(f"Received job: {job_data['id']}")
-    
-    # Update job status to processing
-    job_data["status"] = "processing"
-    job_data["agent_id"] = AGENT_ID
-    
-    await dapr_client.save_state(
-        store_name="statestore",
-        key=f"job-{job_data['id']}",
-        value=json.dumps(job_data)
-    )
-    
-    # Simulate job processing
-    result = await execute_job(job_data)
-    
-    # Update job completion
-    job_data["status"] = "completed"
-    job_data["completed_at"] = datetime.now().isoformat()
-    job_data["result"] = result
-    
-    # Publish completion event
-    await dapr_client.publish_event(
-        pubsub_name="pubsub",
-        topic_name="job-completed",
-        data=json.dumps(job_data)
-    )
-    
-    return {"success": True}
-
 async def execute_job(job_data: dict) -> dict:
     """Execute the actual job based on task type"""
     task_type = job_data.get("task_type")
@@ -93,25 +59,6 @@ async def execute_job(job_data: dict) -> dict:
         return {"error": f"Unknown task type: {task_type}"}
 
 # Subscribe to chat messages
-@dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
-async def handle_chat_message(event):
-    """Handle incoming chat messages"""
-    message = event.data
-    print(f"Chat message from {message['sender_id']}: {message['content']}")
-    
-    # Process message and potentially respond
-    if "help" in message["content"].lower():
-        response = {
-            "sender_id": AGENT_ID,
-            "content": f"{AGENT_NAME} here. How can I assist?",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        await dapr_client.publish_event(
-            pubsub_name="pubsub",
-            topic_name="chat-messages",
-            data=json.dumps(response)
-        )
 
 # Heartbeat
 async def send_heartbeat():
@@ -150,6 +97,60 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
+
+@dapr_app.subscribe(pubsub="pubsub", topic="job-queue")
+async def process_job(event):
+    """Process incoming jobs"""
+    job_data = event.data
+    
+    print(f"Received job: {job_data['id']}")
+    
+    # Update job status to processing
+    job_data["status"] = "processing"
+    job_data["agent_id"] = AGENT_ID
+    
+    await dapr_client.save_state(
+        store_name="statestore",
+        key=f"job-{job_data['id']}",
+        value=json.dumps(job_data)
+    )
+    
+    # Simulate job processing
+    result = await execute_job(job_data)
+    
+    # Update job completion
+    job_data["status"] = "completed"
+    job_data["completed_at"] = datetime.now().isoformat()
+    job_data["result"] = result
+    
+    # Publish completion event
+    await dapr_client.publish_event(
+        pubsub_name="pubsub",
+        topic_name="job-completed",
+        data=json.dumps(job_data)
+    )
+    
+    return {"success": True}
+
+@dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
+async def handle_chat_message(event):
+    """Handle incoming chat messages"""
+    message = event.data
+    print(f"Chat message from {message['sender_id']}: {message['content']}")
+    
+    # Process message and potentially respond
+    if "help" in message["content"].lower():
+        response = {
+            "sender_id": AGENT_ID,
+            "content": f"{AGENT_NAME} here. How can I assist?",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        await dapr_client.publish_event(
+            pubsub_name="pubsub",
+            topic_name="chat-messages",
+            data=json.dumps(response)
+        )
 
 if __name__ == "__main__":
     import uvicorn
