@@ -1,5 +1,7 @@
 let ws = null;
 const clientId = Math.random().toString(36).substring(7);
+let currentSessionId = null;
+let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
 
 // Initialize WebSocket connection
 function initWebSocket() {
@@ -7,7 +9,7 @@ function initWebSocket() {
     
     ws.onopen = () => {
         console.log('Connected to coordinator');
-        loadInitialData();
+        initializeApp(); // Changed from loadInitialData to a more comprehensive init
     };
     
     ws.onmessage = (event) => {
@@ -28,7 +30,14 @@ function handleMessage(message) {
             updateJobDisplay(message.data);
             break;
         case 'chat_message':
-            displayChatMessage(message.data);
+            // Only display if it belongs to the current session
+            if (message.data && message.data.session_id === currentSessionId) {
+                displayChatMessage(message.data);
+            } else {
+                // Optionally, notify if a message for another session arrives
+                // console.log(`Chat message for another session (${message.data.session_id}) received.`);
+                // Or update a badge on the session list item
+            }
             break;
         case 'agent_update':
             updateAgentDisplay(message.data);
@@ -56,11 +65,143 @@ async function loadInitialData() {
     // const jobs = await jobsResponse.json();
     // jobs.forEach(job => updateJobDisplay(job));
     
-    // Load chat history
-    const chatResponse = await fetch('/api/chat/history/global');
-    const chatHistory = await chatResponse.json();
-    chatHistory.messages.forEach(msg => displayChatMessage(msg));
+    // Chat history will be loaded by switchSession or createNewSession
 }
+
+async function initializeApp() {
+    loadInitialData(); // For agents and jobs
+    loadSessionsFromLocalStorage();
+    renderSessionList();
+
+    if (Object.keys(knownSessions).length === 0) {
+        await createNewSession(); // Create a default session if none exist
+    } else {
+        // Try to load the last active session, or the most recent one
+        const lastActiveId = localStorage.getItem('currentSessionId');
+        if (lastActiveId && knownSessions[lastActiveId]) {
+            await switchSession(lastActiveId);
+        } else {
+            // Fallback to the most recent session if last active is not found or invalid
+            const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            if (sortedSessions.length > 0) {
+                await switchSession(sortedSessions[0].id);
+            } else {
+                 await createNewSession(); // Should not happen if previous block created one
+            }
+        }
+    }
+}
+
+function saveSessionsToLocalStorage() {
+    localStorage.setItem('knownSessions', JSON.stringify(knownSessions));
+    if (currentSessionId) {
+        localStorage.setItem('currentSessionId', currentSessionId);
+    }
+}
+
+function loadSessionsFromLocalStorage() {
+    const storedSessions = localStorage.getItem('knownSessions');
+    if (storedSessions) {
+        knownSessions = JSON.parse(storedSessions);
+    }
+    // currentSessionId will be loaded and set by initializeApp logic
+}
+
+async function createNewSession() {
+    try {
+        const response = await fetch('/sessions/create', { method: 'POST' });
+        if (response.ok) {
+            const session = await response.json();
+            const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+            knownSessions[session.id] = { 
+                id: session.id, 
+                name: sessionName, 
+                timestamp: session.created_at 
+            };
+            saveSessionsToLocalStorage();
+            renderSessionList();
+            await switchSession(session.id);
+            return session.id;
+        } else {
+            console.error("Failed to create new session:", response.status, await response.text());
+        }
+    } catch (error) {
+        console.error("Error creating new session:", error);
+    }
+    return null;
+}
+
+async function switchSession(sessionId) {
+    if (!knownSessions[sessionId]) {
+        console.error(`Session ${sessionId} not found in knownSessions.`);
+        // Potentially create a new session or switch to a default if current is invalid
+        if (Object.keys(knownSessions).length > 0) {
+            const firstSessionId = Object.keys(knownSessions)[0];
+            console.warn(`Switching to first available session: ${firstSessionId}`);
+            await switchSession(firstSessionId);
+        } else {
+            await createNewSession();
+        }
+        return;
+    }
+
+    currentSessionId = sessionId;
+    document.getElementById('chat-messages').innerHTML = ''; // Clear previous messages
+    document.getElementById('chat-title').textContent = `Agent Chat (${knownSessions[sessionId].name})`;
+
+
+    // Highlight active session in the list
+    const sessionListItems = document.querySelectorAll('#sessions-list li');
+    sessionListItems.forEach(item => {
+        item.classList.remove('active-session');
+        if (item.dataset.sessionId === sessionId) {
+            item.classList.add('active-session');
+        }
+    });
+    
+    saveSessionsToLocalStorage(); // Save current session as active
+    await loadChatHistory(sessionId);
+}
+
+async function loadChatHistory(sessionId) {
+    if (!sessionId) {
+        console.log("No session ID provided to loadChatHistory.");
+        document.getElementById('chat-messages').innerHTML = '<div>Select or create a chat session.</div>';
+        return;
+    }
+    try {
+        const chatResponse = await fetch(`/api/chat/history/${sessionId}`);
+        if (chatResponse.ok) {
+            const chatHistory = await chatResponse.json();
+            chatHistory.messages.forEach(msg => displayChatMessage(msg));
+        } else {
+            console.error(`Failed to load chat history for session ${sessionId}:`, chatResponse.status, await chatResponse.text());
+            document.getElementById('chat-messages').innerHTML = `<div>Error loading history for session ${sessionId}.</div>`;
+        }
+    } catch (error) {
+        console.error(`Error fetching chat history for session ${sessionId}:`, error);
+        document.getElementById('chat-messages').innerHTML = `<div>Could not fetch history for session ${sessionId}.</div>`;
+    }
+}
+
+function renderSessionList() {
+    const sessionsListElement = document.getElementById('sessions-list');
+    sessionsListElement.innerHTML = ''; // Clear existing list
+
+    const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    sortedSessions.forEach(session => {
+        const listItem = document.createElement('li');
+        listItem.textContent = session.name;
+        listItem.dataset.sessionId = session.id;
+        if (session.id === currentSessionId) {
+            listItem.classList.add('active-session');
+        }
+        listItem.onclick = () => switchSession(session.id);
+        sessionsListElement.appendChild(listItem);
+    });
+}
+
 
 // Submit a new job
 async function submitJob() {
@@ -92,9 +233,15 @@ function sendMessage() {
     const input = document.getElementById('chat-input');
     const message = input.value.trim();
     
+    if (!currentSessionId) {
+        alert("Please select or create a chat session first.");
+        return;
+    }
+
     if (message && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             type: 'chat',
+            session_id: currentSessionId, // Include current session ID
             content: message
         }));
         input.value = '';
@@ -163,6 +310,8 @@ document.getElementById('chat-input').addEventListener('keypress', (e) => {
         sendMessage();
     }
 });
+
+document.getElementById('new-chat-button').addEventListener('click', createNewSession);
 
 // Initialize
 initWebSocket();
