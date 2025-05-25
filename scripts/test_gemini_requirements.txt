@@ -1,0 +1,2 @@
+openai>=1.0.0 # For OpenAI client library
+# python-dotenv # Uncomment if you want to use a .env file for GEMINI_API_KEY
