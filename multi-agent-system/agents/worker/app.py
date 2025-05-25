@@ -127,7 +127,7 @@ async def process_job(event):
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="job-completed",
-        data=json.dumps(job_data)
+        data=job_data # Pass dictionary directly
     )
     
     return {"success": True}
@@ -149,7 +149,7 @@ async def handle_chat_message(event):
         await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
-            data=json.dumps(response)
+            data=response # Pass dictionary directly
         )
 
 if __name__ == "__main__":
