@@ -15,12 +15,15 @@
         
         <div class="main-layout">
             <!-- Sessions Sidebar -->
-            <div id="sessions-sidebar" class="panel">
-                <h2>Chat Sessions</h2>
-                <button id="new-chat-button">New Chat</button>
-                <ul id="sessions-list">
-                    <!-- Session items will be populated here -->
-                </ul>
+            <div id="sessions-sidebar"> {/* Panel class removed, will be a flex container */}
+                <div class="panel" id="chat-sessions-panel"> {/* New wrapper for chat sessions */}
+                    <h2>Chat Sessions</h2>
+                    <button id="new-chat-button">New Chat</button>
+                    <ul id="sessions-list">
+                        <!-- Session items will be populated here -->
+                    </ul>
+                </div>
+                {/* Jobs panel will be moved here from main-content */}
             </div>
 
             <!-- Main Content Area -->
@@ -32,11 +35,13 @@
                         <div id="agents-list"></div>
                     </div>
                     
-                    <!-- Job Queue -->
+                    {/* Job Queue panel is moved to the sidebar */}
+
+                    <!-- Job Queue (Moved to Sidebar) -->
                     <div class="panel" id="jobs-panel">
                         <h2>Jobs</h2>
                         <button onclick="openSubmitJobModal()">Submit New Job</button>
-                        <ul id="jobs-list"></ul> <!-- Changed div to ul for consistency with sessions-list -->
+                        <ul id="jobs-list"></ul>
                     </div>
 
                     <!-- Job Submission Modal -->

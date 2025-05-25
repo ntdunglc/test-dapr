@@ -34,10 +34,19 @@ body {
 }
 
 #sessions-sidebar {
-    /* Styles for the sidebar panel itself are covered by .panel */
     display: flex;
     flex-direction: column;
+    gap: 20px; /* Space between session and job panels */
+    /* width is controlled by .main-layout grid */
 }
+
+#sessions-sidebar > .panel { /* Style for panels directly inside the sidebar */
+    display: flex;
+    flex-direction: column;
+    flex: 1; /* Allows panels to share sidebar height, or grow/shrink */
+    min-height: 0; /* Important for flex children that scroll */
+}
+
 
 #new-chat-button {
     margin-bottom: 15px;
@@ -52,7 +61,8 @@ body {
     padding: 0;
     margin: 0;
     overflow-y: auto;
-    flex-grow: 1; /* Allows list to take available space */
+    flex-grow: 1; /* Allows list to take available space within its panel */
+    min-height: 0; /* Ensure it can shrink if needed within flex parent */
 }
 
 #sessions-list li {
@@ -145,15 +155,16 @@ button:hover {
     border-bottom: none;
 }
 
-#jobs-list { /* Style for the jobs list container */
+#jobs-list { 
     list-style-type: none;
     padding: 0;
     margin: 0;
-    max-height: 300px; /* Example max height, adjust as needed */
-    overflow-y: auto;
+    flex-grow: 1; /* Allows list to take available space within its panel */
+    overflow-y: auto; /* Enable scrolling for the list */
+    min-height: 0; /* Ensure it can shrink if needed within flex parent */
 }
 
-#jobs-list .job-item { /* Style for individual job items if they are li or have this class */
+#jobs-list .job-item {
     padding: 10px;
     border-bottom: 1px solid #eee;
     cursor: pointer;
