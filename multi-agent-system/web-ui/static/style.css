@@ -264,3 +264,17 @@ button:hover {
 .modal-content button.cancel-button:hover {
     background-color: #5a6268;
 }
+
+.chat-command-note {
+    font-size: 0.8em;
+    color: #666;
+    margin-top: 8px;
+    text-align: left;
+}
+
+.chat-command-note code {
+    background-color: #e9ecef;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+}
