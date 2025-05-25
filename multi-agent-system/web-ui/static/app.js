@@ -460,10 +460,10 @@ function sendMessage() {
 
     if (messageContent && ws.readyState === WebSocket.OPEN) {
         const messagePayload = {
-            type: 'chat', // All messages to coordinator are 'chat' type for now
-                          // Coordinator will then publish to 'chat-messages' topic
-            session_id: currentChatTarget.id, // This ID is the key for chat history (session_id or job_id)
-            content: messageContent
+            type: 'chat', 
+            session_id: currentChatTarget.id, 
+            content: messageContent,
+            sender_id: persistentUserId // Add persistentUserId as sender_id
         };
 
         // If the target is a job, we might want to add specific metadata,

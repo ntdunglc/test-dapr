@@ -334,13 +334,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             message = json.loads(data)
             
             if message["type"] == "chat":
-                # Expect session_id in chat messages from client
                 session_id = message.get("session_id")
                 content = message.get("content")
+                # Use sender_id from payload if present, otherwise default to client_id from WebSocket path
+                actual_sender_id = message.get("sender_id", client_id) 
                 if session_id and content:
-                    await publish_chat_message(sender_id=client_id, content=content, session_id=session_id)
+                    await publish_chat_message(sender_id=actual_sender_id, content=content, session_id=session_id)
                 else:
-                    print(f"Coordinator: Received chat message without session_id or content from {client_id}")
+                    print(f"Coordinator: Received chat message without session_id or content from {client_id}. Sender from payload: {message.get('sender_id')}")
     except Exception as e:
         print(f"Coordinator: WebSocket error for client {client_id}: {e}")
         pass
