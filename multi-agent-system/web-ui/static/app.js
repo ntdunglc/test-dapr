@@ -78,7 +78,7 @@ async function loadInitialData() {
         } else {
             console.error("Failed to load agents for job modal cache:", agentsResponse.status, await agentsResponse.text());
         }
-    } catch (error)
+    } catch (error) { // Added opening brace
         console.error("Error fetching agents for job modal cache:", error);
     }
         
@@ -107,7 +107,7 @@ async function loadInitialData() {
     }
     
     // Chat history will be loaded by switchSession or createNewSession
-}
+// Removed extra closing brace here by ending the SEARCH block before it and not including it in REPLACE
 
 async function initializeApp() {
     persistentUserId = getOrSetUserId();
