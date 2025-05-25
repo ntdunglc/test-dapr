@@ -6,14 +6,14 @@ apps:
   - appID: coordinator
     appDirPath: ./agents/coordinator/
     appPort: 8000
-    command: ["python", "app.py"]
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     
   - appID: worker
     appDirPath: ./agents/worker/
     appPort: 8001
-    command: ["python", "app.py"]
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     
   - appID: chat
     appDirPath: ./agents/chat/
     appPort: 8002
-    command: ["python", "app.py"]
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
