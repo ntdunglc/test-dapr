@@ -57,12 +57,14 @@ class Job(BaseModel):
 class Session(BaseModel):
     id: str
     user_id: Optional[str] = "anonymous" # Made user_id optional with a default
-    agents: List[str] = []
+    active_agent_id: Optional[str] = None # Agent primarily responsible for this session
+    agents: List[str] = [] # Could be used for other participants, or deprecated if active_agent_id is primary
     created_at: datetime
     last_activity: datetime
 
 class CreateSessionRequest(BaseModel):
     user_id: Optional[str] = "anonymous"
+    agent_id: Optional[str] = None # To specify the active agent for the new session
 
 # WebSocket connections
 websocket_connections: Dict[str, WebSocket] = {}
@@ -146,7 +148,8 @@ async def create_session(request_data: CreateSessionRequest): # Use the request 
     session_id = str(uuid.uuid4())
     session = Session(
         id=session_id,
-        user_id=request_data.user_id, # Use user_id from request body
+        user_id=request_data.user_id,
+        active_agent_id=request_data.agent_id, # Set active agent from request
         created_at=datetime.now(),
         last_activity=datetime.now()
     )
@@ -377,8 +380,19 @@ async def publish_chat_message(sender_id: str, content: str, session_id: str): #
         "sender_id": sender_id,
         "content": content,
         "timestamp": datetime.now().isoformat(),
-        "session_id": session_id # Include session_id in the published message
+        "session_id": session_id
     }
+
+    # Fetch session details to include active_agent_id if present
+    try:
+        session_state = await dapr_client.get_state(store_name="statestore", key=f"coordinator-session-{session_id}")
+        if session_state.data:
+            session_data = json.loads(session_state.data)
+            if session_data.get("active_agent_id"):
+                message["active_agent_id"] = session_data["active_agent_id"]
+                print(f"Coordinator: Attaching active_agent_id {session_data['active_agent_id']} to message for session {session_id}")
+    except Exception as e:
+        print(f"Coordinator: Error fetching session {session_id} to attach active_agent_id: {e}")
     
     print(f"Coordinator: Publishing chat message to Dapr: {message}")
     await dapr_client.publish_event(

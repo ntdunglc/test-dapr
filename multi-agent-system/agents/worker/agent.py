@@ -326,48 +326,64 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     # The incoming_session_id could be a regular session_id or a job_id if the chat is job-focused
     incoming_session_id = message_data.get("session_id") 
     response_payload = None
+    sender_is_self = message_data.get("sender_id") == AGENT_ID
 
     if not incoming_session_id:
         print(f"Worker ({AGENT_ID}): Received chat message without session_id. Cannot process or reply specifically. Data: {message_data}")
         return {"status": "DROP", "error": "missing session_id in chat message"}
 
+    # Priority 1: @echo command
     if "@echo" in original_content:
-        content_to_echo = original_content.replace("@echo", "").strip()
-        response_payload = {
-            "sender_id": AGENT_ID, # This worker is the sender
-            "content": f"Echo from {AGENT_NAME}: {content_to_echo}",
-            "timestamp": datetime.now().isoformat(),
-            "session_id": incoming_session_id # Echo back to the same session/job context
-        }
-        print(f"Worker ({AGENT_ID}): Sending echo reply to session/job {incoming_session_id}: {response_payload['content']}")
+        if not sender_is_self: # Don't echo own echos
+            content_to_echo = original_content.replace("@echo", "").strip()
+            response_payload = {
+                "sender_id": AGENT_ID,
+                "content": f"Echo from {AGENT_NAME}: {content_to_echo}",
+                "timestamp": datetime.now().isoformat(),
+                "session_id": incoming_session_id
+            }
+            print(f"Worker ({AGENT_ID}): Sending echo reply to session/job {incoming_session_id}: {response_payload['content']}")
+        else:
+            print(f"Worker ({AGENT_ID}): Skipping self-sent @echo command.")
+            return {"status": "SUCCESS"} # Successfully did nothing
 
-    elif "@llm" in original_content:
-        # Prevent processing its own messages if they contain the command
-        if message_data.get("sender_id") == AGENT_ID:
-            print(f"Worker ({AGENT_ID}): Skipping self-generated message containing @llm for session/job {incoming_session_id}: {original_content}")
-            return {"status": "DROP", "error": "Skipping self-generated @llm message"}
+
+    # Priority 2: Explicit @llm command (if not an echo and not self-sent)
+    # Or, if this agent is the active_agent_id for the session (and not an echo command and not self-sent)
+    is_active_agent = message_data.get("active_agent_id") == AGENT_ID
+    is_explicit_llm_call = "@llm" in original_content
+    
+    # Condition to invoke LLM:
+    # 1. Not an echo command (response_payload will be None if echo wasn't processed)
+    # 2. Not a message sent by self
+    # 3. Either (explicit @llm call) OR (this worker is the active agent for the session)
+    should_invoke_llm = (response_payload is None) and \
+                        (not sender_is_self) and \
+                        (is_explicit_llm_call or is_active_agent)
+
+    if should_invoke_llm:
+        content_for_llm = original_content.replace("@llm", "").strip() if is_explicit_llm_call else original_content.strip()
         
-        content_for_llm = original_content.replace("@llm", "").strip()
+        if not content_for_llm: 
+            print(f"Worker ({AGENT_ID}): No content for LLM after stripping command or empty message. Session: {incoming_session_id}")
+            return {"status": "SUCCESS"} # Successfully did nothing if no content
+
         llm_reply_text = ""
+        print(f"Worker ({AGENT_ID}): Preparing to invoke LLM. Active: {is_active_agent}, Explicit: {is_explicit_llm_call}. Content: '{content_for_llm}'")
 
         try:
-            # Using standard OpenAI API
             openai_api_key = os.getenv("OPENAI_API_KEY")
             if not openai_api_key:
                 print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. OpenAI LLM agent cannot be invoked.")
                 llm_reply_text = "LLM Agent requires OPENAI_API_KEY to be set."
             else:
-                # Get or create a DaprAgent instance for this session
                 if incoming_session_id not in dapr_agent_instances:
                     print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for session {incoming_session_id}")
                     session_memory = ConversationDaprStateMemory(
                         store_name="statestore", 
                         session_id=incoming_session_id,
-                        dapr_client=dapr_client # Pass the existing DaprClient instance
+                        dapr_client=dapr_client
                     )
-                    
-                    # DaprAgent will use OPENAI_API_KEY from environment by default
-                    # when using an OpenAI model. No explicit llm_client_args needed for api_key/base_url.
                     agent_instance = DaprAgent(
                         name=f"OpenAIAgentSession-{incoming_session_id[:6]}",
                         role="Conversational AI Assistant (OpenAI)",
@@ -379,34 +395,30 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                         ],
                         memory=session_memory,
                         tools=[], 
-                        model="gpt-3.5-turbo", # Standard OpenAI model
-                        # llm_client_args is not needed here for standard OpenAI usage
+                        model="gpt-3.5-turbo",
                     )
                     dapr_agent_instances[incoming_session_id] = agent_instance
                 else:
                     print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for session {incoming_session_id}")
                 
                 current_dapr_agent = dapr_agent_instances[incoming_session_id]
-
                 print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm}'.")
                 
-                # Run the agent with the user's content
-                # The DaprAgent's memory (ConversationDaprStateMemory) will handle history.
                 agent_response = await current_dapr_agent.run(content_for_llm)
                 
-                if isinstance(agent_response, str): # Expected response type
+                if isinstance(agent_response, str):
                     llm_reply_text = agent_response
-                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str): # If it's an object with a content field
+                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str):
                     llm_reply_text = agent_response.content
-                else: # Fallback if response is not directly a string
-                    llm_reply_text = str(agent_response) # Convert to string as a last resort
+                else:
+                    llm_reply_text = str(agent_response)
 
-                if not llm_reply_text.strip(): # Check if the reply is empty or just whitespace
+                if not llm_reply_text.strip():
                     llm_reply_text = "LLM agent did not return a text response."
             
             response_payload = {
                 "sender_id": AGENT_ID,
-                "content": f"{llm_reply_text}",
+                "content": llm_reply_text, 
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
@@ -414,10 +426,10 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
 
         except Exception as e:
             print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (OpenAI backend): {e}")
-            traceback.print_exc() # Print the full stack trace
+            traceback.print_exc()
             response_payload = {
                 "sender_id": AGENT_ID,
-                "content": f"Error processing LLM request.", # Removed "@" to prevent loop
+                "content": "Error processing LLM request.",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }

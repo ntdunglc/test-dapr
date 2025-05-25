@@ -192,7 +192,10 @@ async function createNewChatSession() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ user_id: persistentUserId })
+            body: JSON.stringify({ 
+                user_id: persistentUserId,
+                agent_id: "worker-1" // Default new chats to be handled by LLM worker
+            })
         });
         if (response.ok) {
             const session = await response.json();
