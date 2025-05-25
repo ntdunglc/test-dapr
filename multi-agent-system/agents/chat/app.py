@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
+from pydantic import BaseModel, Field # Added Field
+from typing import Any, Optional # Added Any, Optional
 import json
 from datetime import datetime
-from contextlib import asynccontextmanager # Added
+from contextlib import asynccontextmanager
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -25,9 +27,34 @@ dapr_app = DaprApp(app)
 AGENT_ID = "chat-agent"
 AGENT_NAME = "Chat Coordinator"
 
+
+# Custom TopicEvent model to make 'route' field optional
+class CustomTopicEvent(BaseModel):
+    pubsub_name: str = Field(alias="pubsubname")
+    topic: str
+    route: Optional[str] = None  # Made optional
+    id: str
+    data_content_type: str = Field(alias="datacontenttype")
+    data: Any
+    spec_version: str = Field(alias="specversion")
+    type: str
+    source: str
+    trace_id: Optional[str] = Field(default=None, alias="traceid")
+    trace_state: Optional[str] = Field(default=None, alias="tracestate")
+    # For backwards compatibility with Dapr 1.2.0 and SDK TopicEvent model
+    Data: Optional[Any] = Field(default=None, alias="Data")
+    DataContentType: Optional[str] = Field(default=None, alias="DataContentType")
+    Id: Optional[str] = Field(default=None, alias="Id")
+    PubsubName: Optional[str] = Field(default=None, alias="PubsubName")
+    Source: Optional[str] = Field(default=None, alias="Source")
+    SpecVersion: Optional[str] = Field(default=None, alias="SpecVersion")
+    Topic: Optional[str] = Field(default=None, alias="Topic")
+    Type: Optional[str] = Field(default=None, alias="Type")
+
+
 # Message history storage
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
-async def store_chat_message(event):
+async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Store chat messages in state store"""
     message = event.data
     

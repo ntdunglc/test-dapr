@@ -2,8 +2,8 @@ from fastapi import FastAPI, WebSocket, HTTPException, Depends, Form, status
 from contextlib import asynccontextmanager # Added
 from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
-from pydantic import BaseModel
-from typing import Dict, List, Optional
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional, Any
 import uuid
 import json
 import asyncio
@@ -62,6 +62,31 @@ class Session(BaseModel):
 
 # WebSocket connections
 websocket_connections: Dict[str, WebSocket] = {}
+
+
+# Custom TopicEvent model to make 'route' field optional
+class CustomTopicEvent(BaseModel):
+    pubsub_name: str = Field(alias="pubsubname")
+    topic: str
+    route: Optional[str] = None  # Made optional
+    id: str
+    data_content_type: str = Field(alias="datacontenttype")
+    data: Any
+    spec_version: str = Field(alias="specversion")
+    type: str
+    source: str
+    trace_id: Optional[str] = Field(default=None, alias="traceid")
+    trace_state: Optional[str] = Field(default=None, alias="tracestate")
+    # For backwards compatibility with Dapr 1.2.0 and SDK TopicEvent model
+    Data: Optional[Any] = Field(default=None, alias="Data")
+    DataContentType: Optional[str] = Field(default=None, alias="DataContentType")
+    Id: Optional[str] = Field(default=None, alias="Id")
+    PubsubName: Optional[str] = Field(default=None, alias="PubsubName")
+    Source: Optional[str] = Field(default=None, alias="Source")
+    SpecVersion: Optional[str] = Field(default=None, alias="SpecVersion")
+    Topic: Optional[str] = Field(default=None, alias="Topic")
+    Type: Optional[str] = Field(default=None, alias="Type")
+
 
 # Agent Registry
 @app.post("/agents/register")
@@ -217,7 +242,7 @@ async def publish_chat_message(sender_id: str, content: str):
 
 # Subscribe to events
 @dapr_app.subscribe(pubsub="pubsub", topic="job-completed")
-async def handle_job_completed(event):
+async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle job completion events"""
     job_data = event.data
     
@@ -232,7 +257,7 @@ async def handle_job_completed(event):
     await broadcast_job_update(job_data)
 
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
-async def handle_incoming_chat_message(event):
+async def handle_incoming_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages from pub/sub and broadcast to WebSocket clients."""
     chat_data = event.data # This is already a dict
     print(f"Coordinator received chat message from pub/sub: {chat_data}")

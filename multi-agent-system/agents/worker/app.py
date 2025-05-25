@@ -1,17 +1,44 @@
 from fastapi import FastAPI
 from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
+from pydantic import BaseModel, Field # Added Field
+from typing import Any, Optional # Added Any, Optional
 import json
 import time
 import asyncio
 from datetime import datetime
-from contextlib import asynccontextmanager # Added
+from contextlib import asynccontextmanager
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
 
 AGENT_ID = "worker-1"
 AGENT_NAME = "Worker Agent 1"
+
+
+# Custom TopicEvent model to make 'route' field optional
+class CustomTopicEvent(BaseModel):
+    pubsub_name: str = Field(alias="pubsubname")
+    topic: str
+    route: Optional[str] = None  # Made optional
+    id: str
+    data_content_type: str = Field(alias="datacontenttype")
+    data: Any
+    spec_version: str = Field(alias="specversion")
+    type: str
+    source: str
+    trace_id: Optional[str] = Field(default=None, alias="traceid")
+    trace_state: Optional[str] = Field(default=None, alias="tracestate")
+    # For backwards compatibility with Dapr 1.2.0 and SDK TopicEvent model
+    Data: Optional[Any] = Field(default=None, alias="Data")
+    DataContentType: Optional[str] = Field(default=None, alias="DataContentType")
+    Id: Optional[str] = Field(default=None, alias="Id")
+    PubsubName: Optional[str] = Field(default=None, alias="PubsubName")
+    Source: Optional[str] = Field(default=None, alias="Source")
+    SpecVersion: Optional[str] = Field(default=None, alias="SpecVersion")
+    Topic: Optional[str] = Field(default=None, alias="Topic")
+    Type: Optional[str] = Field(default=None, alias="Type")
+
 
 async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
@@ -99,7 +126,7 @@ app = FastAPI(lifespan=lifespan)
 dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
 
 @dapr_app.subscribe(pubsub="pubsub", topic="job-queue")
-async def process_job(event):
+async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     """Process incoming jobs"""
     job_data = event.data
     
@@ -134,7 +161,7 @@ async def process_job(event):
     return {"success": True}
 
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
-async def handle_chat_message(event):
+async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages"""
     message = event.data
     print(f"Chat message from {message['sender_id']}: {message['content']}")
