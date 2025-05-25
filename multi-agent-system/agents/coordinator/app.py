@@ -117,11 +117,11 @@ async def register_agent(agent: Agent):
         data_content_type="application/json" # Specify content type
     )
 
+    # Add to in-memory cache first
+    registered_agents_cache[agent.id] = agent
+
     # Notify WebSocket clients about the new agent
     await broadcast_agent_update(agent.model_dump(mode='json'))
-
-    # Add to in-memory cache
-    registered_agents_cache[agent.id] = agent
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
 
