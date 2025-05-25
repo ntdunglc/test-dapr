@@ -10,11 +10,8 @@ import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from google.adk.agents import LlmAgent
-from google.adk.runners import Runner
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.artifacts import InMemoryArtifactService
-from google.genai import types as genai_types # Renamed to avoid conflict
+from dapr_agents import Agent as DaprAgent # For LLM functionality
+from dapr_agents.memory import ConversationDaprStateMemory # For session-specific memory
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -47,34 +44,9 @@ class CustomTopicEvent(BaseModel):
     Topic: Optional[str] = Field(default=None, alias="Topic")
     Type: Optional[str] = Field(default=None, alias="Type")
 
-
-# Define an ADK LlmAgent
-class AdkLlmGreeterAgent(LlmAgent):
-    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash"):
-        super().__init__(
-            name=name,
-            description="An ADK agent that greets or answers questions using an LLM.",
-            instruction="You are a friendly and helpful agent. If given a name, greet the person warmly. If asked a question, provide a concise and accurate answer. If the question is complex, you can say you need more time or tools.",
-            model=model
-        )
-
-# Global ADK Setup
-# This agent instance can be named `root_agent` if ADK tooling expects that name.
-root_agent = AdkLlmGreeterAgent()
-session_service = InMemorySessionService()
-artifact_service = InMemoryArtifactService()
-
-ADK_APP_NAME = "worker_adk_application" # Used for ADK Runner and Session Service
-adk_runner = Runner(
-    app_name=ADK_APP_NAME,
-    agent=root_agent,
-    artifact_service=artifact_service,
-    session_service=session_service
-)
-
-# Map incoming chat session IDs to ADK session IDs
-adk_sessions_map: dict[str, str] = {}
-
+# Store DaprAgent instances, keyed by chat session_id
+# Each agent will have its own memory tied to that session.
+dapr_agent_instances: dict[str, DaprAgent] = {}
 
 async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
@@ -277,67 +249,67 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         
         content_for_llm = original_content.replace("@llm", "").strip()
         llm_reply_text = ""
-        current_adk_session_id = None # This is for ADK's internal session, distinct from chat session_id
-
-        # ADK manages history internally via its session_service and the current_adk_session_id.
-        # We do not need to fetch and pass history manually.
 
         try:
-            api_key = os.getenv("GOOGLE_API_KEY")
+            # dapr-agents typically uses OpenAI, so check for OPENAI_API_KEY
+            api_key = os.getenv("OPENAI_API_KEY")
             if not api_key:
-                print(f"Worker ({AGENT_ID}): GOOGLE_API_KEY not set. ADK LLM agent cannot be invoked.")
-                llm_reply_text = "LLM Agent requires GOOGLE_API_KEY to be set."
+                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. Dapr LLM agent cannot be invoked.")
+                llm_reply_text = "LLM Agent requires OPENAI_API_KEY to be set."
             else:
-                adk_user_id = "adk_fixed_user" 
-
-                if incoming_session_id not in adk_sessions_map:
-                    try:
-                        new_adk_session_obj = await session_service.create_session(
-                            app_name=ADK_APP_NAME,
-                            user_id=adk_user_id
-                        )
-                        current_adk_session_id = new_adk_session_obj.id
-                        adk_sessions_map[incoming_session_id] = current_adk_session_id
-                        print(f"Worker ({AGENT_ID}): Created new ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
-                    except Exception as e:
-                        print(f"Worker ({AGENT_ID}): Error creating ADK session: {e}")
-                        llm_reply_text = f"Error initializing ADK session: {type(e).__name__}"
+                # Get or create a DaprAgent instance for this session
+                if incoming_session_id not in dapr_agent_instances:
+                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent for session {incoming_session_id}")
+                    # Configure memory for this session using the existing "statestore"
+                    session_memory = ConversationDaprStateMemory(
+                        store_name="statestore", # Ensure this matches your Dapr component name
+                        session_id=incoming_session_id
+                    )
+                    # Create the DaprAgent instance
+                    agent_instance = DaprAgent(
+                        name=f"LLMAgentSession-{incoming_session_id[:6]}", # Unique name per session agent
+                        role="Conversational AI Assistant",
+                        goal="Assist users with their queries accurately and concisely.",
+                        instructions=[
+                            "You are a helpful AI assistant.",
+                            "Provide clear and concise answers.",
+                            "If you don't know the answer, say so."
+                        ],
+                        memory=session_memory,
+                        tools=[] # No specific tools defined here, agent acts as direct LLM
+                    )
+                    dapr_agent_instances[incoming_session_id] = agent_instance
                 else:
-                    current_adk_session_id = adk_sessions_map[incoming_session_id]
-                    print(f"Worker ({AGENT_ID}): Using existing ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
+                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent for session {incoming_session_id}")
+                
+                current_dapr_agent = dapr_agent_instances[incoming_session_id]
 
-                if current_adk_session_id and not llm_reply_text:
-                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_llm}'. ADK will manage history.")
-                    agent_reply_parts = []
-                    
-                    new_llm_message = genai_types.Content(role='user', parts=[genai_types.Part(text=content_for_llm)])
+                print(f"Worker ({AGENT_ID}): Invoking DaprAgent for session {incoming_session_id} with input: '{content_for_llm}'.")
+                
+                # Run the agent with the user's content
+                # The DaprAgent's memory (ConversationDaprStateMemory) will handle history.
+                agent_response = await current_dapr_agent.run(content_for_llm)
+                
+                if isinstance(agent_response, str): # Expected response type
+                    llm_reply_text = agent_response
+                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str): # If it's an object with a content field
+                    llm_reply_text = agent_response.content
+                else: # Fallback if response is not directly a string
+                    llm_reply_text = str(agent_response) # Convert to string as a last resort
 
-                    async for event in adk_runner.run_async(
-                        user_id=adk_user_id,
-                        session_id=current_adk_session_id,
-                        # ADK Runner manages history internally based on session_id
-                        new_message=new_llm_message
-                    ):
-                        if event.author != 'user' and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if part.text:
-                                    agent_reply_parts.append(part.text)
-                    
-                    llm_reply_text = "".join(agent_reply_parts)
-                    if not llm_reply_text:
-                        llm_reply_text = "LLM agent did not return a text response."
-                elif not llm_reply_text: 
-                    llm_reply_text = "Failed to establish ADK session."
-
+                if not llm_reply_text.strip(): # Check if the reply is empty or just whitespace
+                    llm_reply_text = "LLM agent did not return a text response."
+            
             response_payload = {
                 "sender_id": AGENT_ID,
                 "content": f"{llm_reply_text}",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
-            print(f"Worker ({AGENT_ID}): Sending LLM reply: {response_payload}")
+            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent: {response_payload}")
+
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking LLM agent: {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent: {e}")
             response_payload = {
                 "sender_id": AGENT_ID,
                 "content": f"Error processing LLM request.", # Removed "@" to prevent loop
