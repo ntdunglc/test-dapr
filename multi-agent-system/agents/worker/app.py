@@ -42,6 +42,7 @@ class CustomTopicEvent(BaseModel):
 
 async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
+    print(f"Worker ({AGENT_ID}): Attempting to register with coordinator.")
     agent_data = {
         "id": AGENT_ID,
         "name": AGENT_NAME,
@@ -56,6 +57,7 @@ async def _register_with_coordinator(): # Renamed and made internal
         data=json.dumps(agent_data),
         http_verb="POST"
     )
+    print(f"Worker ({AGENT_ID}): Registration call completed.")
 
 # Subscribe to job queue
 # Note: DaprApp subscriptions are typically discovered at import time or when DaprApp is initialized.

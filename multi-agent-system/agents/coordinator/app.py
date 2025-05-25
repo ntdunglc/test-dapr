@@ -119,6 +119,7 @@ async def register_agent(agent: Agent):
 
     # Add to in-memory cache first
     registered_agents_cache[agent.id] = agent
+    print(f"Coordinator: Agent {agent.id} registered and added to cache. Cache now: {list(registered_agents_cache.keys())}")
 
     # Notify WebSocket clients about the new agent
     await broadcast_agent_update(agent.model_dump(mode='json'))
@@ -128,6 +129,7 @@ async def register_agent(agent: Agent):
 @app.get("/api/agents", response_model=List[Agent]) # Changed path to /api/agents
 async def get_registered_agents():
     """Get a list of currently registered agents (from in-memory cache)."""
+    print(f"Coordinator: GET /api/agents called. Cache contains: {list(registered_agents_cache.keys())}")
     return list(registered_agents_cache.values())
 
 # Session Management
