@@ -95,13 +95,13 @@ body {
 h1 {
     color: #333;
 }
-
+    
 .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr; /* This grid is now inside .main-content */
+    grid-template-columns: 1fr; /* Only one column now for the chat panel */
     gap: 20px;
 }
-
+    
 .panel {
     background: white;
     border-radius: 8px;

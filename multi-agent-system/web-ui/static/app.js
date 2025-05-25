@@ -58,19 +58,24 @@ function handleMessage(message) {
 
 // Load initial data
 async function loadInitialData() {
-    // Load agents
+    // Load agents for the modal, not for display
     try {
-        const agentsResponse = await fetch('/api/agents'); // Path will be proxied by web-ui/server.py
+        const agentsResponse = await fetch('/api/agents');
         if (agentsResponse.ok) {
             const agents = await agentsResponse.json();
-            agents.forEach(agent => updateAgentDisplay(agent));
+            agents.forEach(agent => { // Populate cache for job submission modal
+                if (agent && agent.id) {
+                    registered_agents_cache[agent.id] = agent;
+                }
+            });
+            console.log("Agents loaded into cache for modal.");
         } else {
-            console.error("Failed to load agents:", agentsResponse.status, await agentsResponse.text());
+            console.error("Failed to load agents for modal cache:", agentsResponse.status, await agentsResponse.text());
         }
     } catch (error) {
-        console.error("Error fetching agents:", error);
+        console.error("Error fetching agents for modal cache:", error);
     }
-    
+        
     // Load recent jobs
     try {
         const jobsResponse = await fetch('/api/jobs'); // Path will be proxied
@@ -466,34 +471,11 @@ function updateJobDisplay(job) {
     `;
 }
 
-function updateAgentDisplay(agent) {
-    const agentsList = document.getElementById('agents-list');
-    let agentElement = document.getElementById(`agent-${agent.id}`);
-    
-    if (!agentElement) {
-        agentElement = document.createElement('div');
-        agentElement.id = `agent-${agent.id}`;
-        agentElement.className = 'agent-item';
-        agentsList.appendChild(agentElement);
-    }
-
-    // Update the cache
-    registered_agents_cache[agent.id] = agent;
-    
-    let commandsHtml = '';
-    if (agent.supported_commands && agent.supported_commands.length > 0) {
-        commandsHtml = `<div>Supports: ${agent.supported_commands.join(', ')}</div>`;
-    }
-
-    agentElement.innerHTML = `
-        <div>
-            <strong>${agent.name}</strong>
-            <span class="status ${agent.status}">${agent.status}</span>
-        </div>
-        <div>Type: ${agent.type}</div>
-        ${commandsHtml}
-    `;
-}
+// function updateAgentDisplay(agent) { // Function removed as panel is gone
+//     // Logic for updating registered_agents_cache is still needed if modal uses it.
+//     // This is now handled in loadInitialData and potentially in ws handler for 'agent_update'
+//     // if live updates to the modal's agent list are desired without a visible panel.
+// }
 
 function displayChatMessage(message) {
     const chatMessages = document.getElementById('chat-messages');
