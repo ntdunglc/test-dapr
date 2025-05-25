@@ -11,7 +11,8 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from google.adk.agents import LlmAgent
-# No longer need these imports since we're using the invoke method instead of process
+# Re-add imports for InferenceRequest, StandardInput, InferenceContext
+from google.adk.core import InferenceRequest, StandardInput, InferenceContext
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -70,21 +71,25 @@ async def run_agent_programmatically(agent_instance: LlmAgent, user_input_text: 
     """
     print(f"\nInvoking agent '{agent_instance.name}' with input: '{user_input_text}'")
     try:
-        # The `invoke` method is used for direct programmatic calls to an agent.
-        # It typically expects a dictionary as input. For an LlmAgent,
-        # this input is often used to fill placeholders in a prompt or directly
-        # passed to the LLM along with the agent's standing 'instruction'.
-        # A common input key for general text is "text" or "input".
-        response_payload = await agent_instance.invoke({"text": user_input_text})
-
-        # The response_payload is also a dictionary.
-        # For an LlmAgent, the LLM's generated text is usually under the "text" key.
-        if isinstance(response_payload, dict) and "text" in response_payload:
-            return response_payload["text"]
+        # Import necessary classes for the process method
+        from google.adk.core import InferenceRequest, StandardInput, InferenceContext
+        
+        # Create a minimal InferenceRequest with the user's text
+        adk_request = InferenceRequest(data=StandardInput(text=user_input_text))
+        
+        # Use the process method which is the standard way to interact with ADK agents
+        adk_response = agent_instance.process(
+            adk_request,
+            InferenceContext()  # Default context
+        )
+        
+        # Extract the response text from the ADK response
+        if adk_response and adk_response.data and hasattr(adk_response.data, 'text'):
+            return adk_response.data.text
         else:
-            print(f"Unexpected response structure: {response_payload}")
-            return str(response_payload) # Fallback
-
+            print(f"Unexpected response structure: {adk_response}")
+            return str(adk_response)  # Fallback
+            
     except Exception as e:
         print(f"Error invoking agent '{agent_instance.name}': {e}")
         # Common issues:
