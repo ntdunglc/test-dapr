@@ -20,7 +20,7 @@ from google.genai import types as genai_types # Renamed to avoid conflict
 dapr_client: DaprClient = None # type: ignore
 
 AGENT_ID = "worker-1" # Internal ID, can remain the same
-AGENT_NAME = "Echo Worker" # New display name
+AGENT_NAME = "LLM Worker" # New display name
 
 
 # Custom TopicEvent model to make 'route' field optional
@@ -80,8 +80,8 @@ async def _register_with_coordinator(): # Renamed and made internal
     print(f"Worker ({AGENT_ID}): Attempting to register with coordinator.")
     agent_data = {
         "id": AGENT_ID,
-        "name": AGENT_NAME, # Will be "Echo Worker"
-        "type": "echo",    # New type for UI display
+        "name": AGENT_NAME, # Will be "LLM Worker"
+        "type": "llm",     # New type for UI display
         "status": "active"
     }
     
@@ -256,29 +256,75 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         content_to_echo = original_content.replace("@echo", "").strip()
         response_payload = {
             "sender_id": AGENT_ID,
-            "content": f"Echo: {content_to_echo} (session: {incoming_session_id[:6]})",
+            "content": f"Echo: {content_to_echo}",
             "timestamp": datetime.now().isoformat(),
             "session_id": incoming_session_id
         }
         print(f"Worker ({AGENT_ID}): Sending echo reply: {response_payload}")
 
-    elif "@adk" in original_content:
+    elif "@llm" in original_content:
         incoming_session_id = message_data.get("session_id")
         if not incoming_session_id:
-            print(f"Worker ({AGENT_ID}): Received @adk request without session_id. Cannot reply specifically.")
-            return {"status": "DROP", "error": "missing session_id in @adk request"}
+            print(f"Worker ({AGENT_ID}): Received @llm request without session_id. Cannot reply specifically.")
+            return {"status": "DROP", "error": "missing session_id in @llm request"}
         
-        content_for_adk = original_content.replace("@adk", "").strip()
-        adk_reply_text = ""
-        current_adk_session_id = None
+        content_for_llm = original_content.replace("@llm", "").strip()
+        llm_reply_text = ""
+        current_adk_session_id = None # This is for ADK's internal session, distinct from chat session_id
+
+        history_for_llm = []
+        try:
+            current_message_timestamp_str = message_data.get('timestamp')
+            if not current_message_timestamp_str:
+                print(f"Worker ({AGENT_ID}): Missing timestamp in current message. Cannot reliably fetch history.")
+                all_messages = []
+            else:
+                current_message_timestamp = datetime.fromisoformat(current_message_timestamp_str)
+                user_id_for_session = message_data.get('sender_id')
+
+                print(f"Worker ({AGENT_ID}): Fetching chat history for session {incoming_session_id} for @llm command.")
+                chat_history_response = await dapr_client.invoke_method(
+                    app_id="chat",
+                    method_name=f"chat/history/{incoming_session_id}",
+                    http_verb="GET"
+                )
+                if chat_history_response.data:
+                    raw_history = json.loads(chat_history_response.data.decode())
+                    all_messages = raw_history.get("messages", [])
+                else:
+                    all_messages = []
+            
+                for msg in all_messages:
+                    msg_timestamp_str = msg.get('timestamp')
+                    if not msg_timestamp_str:
+                        continue 
+                    
+                    msg_timestamp = datetime.fromisoformat(msg_timestamp_str)
+                    if msg_timestamp < current_message_timestamp:
+                        role = None
+                        text_content = msg.get('content', '')
+                        if msg.get('sender_id') == AGENT_ID:
+                            role = 'model'
+                        elif msg.get('sender_id') == user_id_for_session:
+                            role = 'user'
+                            # Clean up @llm from historical user messages to avoid confusing the LLM
+                            text_content = text_content.replace("@llm", "").strip()
+                        
+                        if role:
+                            history_for_llm.append(genai_types.Content(role=role, parts=[genai_types.Part(text=text_content)]))
+                print(f"Worker ({AGENT_ID}): Prepared {len(history_for_llm)} messages for LLM history.")
+
+        except Exception as e:
+            print(f"Worker ({AGENT_ID}): Error processing or fetching chat history for session {incoming_session_id}: {e}")
+            # Proceed without history if an error occurs
 
         try:
             api_key = os.getenv("GOOGLE_API_KEY")
             if not api_key:
                 print(f"Worker ({AGENT_ID}): GOOGLE_API_KEY not set. ADK LLM agent cannot be invoked.")
-                adk_reply_text = "ADK LLM Agent requires GOOGLE_API_KEY to be set."
+                llm_reply_text = "LLM Agent requires GOOGLE_API_KEY to be set."
             else:
-                adk_user_id = "adk_fixed_user" # Fixed user for ADK sessions
+                adk_user_id = "adk_fixed_user" 
 
                 if incoming_session_id not in adk_sessions_map:
                     try:
@@ -291,42 +337,46 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                         print(f"Worker ({AGENT_ID}): Created new ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
                     except Exception as e:
                         print(f"Worker ({AGENT_ID}): Error creating ADK session: {e}")
-                        adk_reply_text = f"Error initializing ADK session: {type(e).__name__}"
+                        llm_reply_text = f"Error initializing ADK session: {type(e).__name__}"
                 else:
                     current_adk_session_id = adk_sessions_map[incoming_session_id]
                     print(f"Worker ({AGENT_ID}): Using existing ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
 
-                if current_adk_session_id and not adk_reply_text: # Proceed if session ID is set and no prior error
-                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_adk}'")
+                if current_adk_session_id and not llm_reply_text:
+                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_llm}' and {len(history_for_llm)} history messages.")
                     agent_reply_parts = []
+                    
+                    new_llm_message = genai_types.Content(role='user', parts=[genai_types.Part(text=content_for_llm)])
+
                     async for event in adk_runner.run_async(
                         user_id=adk_user_id,
                         session_id=current_adk_session_id,
-                        new_message=genai_types.Content(role='user', parts=[genai_types.Part(text=content_for_adk)])
+                        history_override=history_for_llm if history_for_llm else None, # Pass None if empty
+                        new_message=new_llm_message
                     ):
                         if event.author != 'user' and event.content and event.content.parts:
                             for part in event.content.parts:
                                 if part.text:
                                     agent_reply_parts.append(part.text)
                     
-                    adk_reply_text = "".join(agent_reply_parts)
-                    if not adk_reply_text:
-                        adk_reply_text = "ADK agent did not return a text response."
-                elif not adk_reply_text: # If current_adk_session_id was not set and no error message yet
-                    adk_reply_text = "Failed to establish ADK session."
+                    llm_reply_text = "".join(agent_reply_parts)
+                    if not llm_reply_text:
+                        llm_reply_text = "LLM agent did not return a text response."
+                elif not llm_reply_text: 
+                    llm_reply_text = "Failed to establish ADK session."
 
             response_payload = {
                 "sender_id": AGENT_ID,
-                "content": f"{adk_reply_text} (session: {incoming_session_id[:6]})",
+                "content": f"{llm_reply_text}",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
-            print(f"Worker ({AGENT_ID}): Sending ADK reply: {response_payload}")
+            print(f"Worker ({AGENT_ID}): Sending LLM reply: {response_payload}")
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking ADK agent: {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking LLM agent: {e}")
             response_payload = {
                 "sender_id": AGENT_ID,
-                "content": f"Error processing @adk request. (session: {incoming_session_id[:6]})",
+                "content": f"Error processing @llm request.",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
