@@ -11,7 +11,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from google.adk.agents import LlmAgent # Changed from Agent to LlmAgent
-from google.adk.core import InferenceContext, InferenceRequest, InferenceResponse # StandardInput/Output not directly used by LlmAgent.invoke
+# InferenceContext, InferenceRequest, InferenceResponse are not directly used for LlmAgent.invoke with dicts
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
