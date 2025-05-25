@@ -8,6 +8,7 @@ import time
 import os # Added for API key check
 import asyncio
 import traceback # Added for printing stack traces
+import re # Added for regular expression matching
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -348,28 +349,40 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
             return {"status": "SUCCESS"} # Successfully did nothing
 
 
-    # Priority 2: Explicit @llm command (if not an echo and not self-sent)
-    # Or, if this agent is the active_agent_id for the session (and not an echo command and not self-sent)
+    # Determine if it's an explicit LLM call and prepare content for LLM
+    is_explicit_llm_call = False
+    # Default to original stripped content if not an explicit call but active_agent will handle it
+    content_for_llm_input = original_content.strip() 
+
+    # Check for "@llm command" (case-insensitive, requires space after @llm)
+    # re.DOTALL allows . to match newline characters if the content spans multiple lines
+    explicit_llm_match = re.match(r"@llm\s+(.*)", original_content.strip(), re.IGNORECASE | re.DOTALL)
+    if explicit_llm_match:
+        is_explicit_llm_call = True
+        content_for_llm_input = explicit_llm_match.group(1).strip()
+    elif original_content.strip().lower() == "@llm": # Handle case where only "@llm" is typed
+        is_explicit_llm_call = True
+        content_for_llm_input = "" # Explicit call with no content for LLM
+
+    # Condition to invoke LLM
     is_active_agent = message_data.get("active_agent_id") == AGENT_ID
-    is_explicit_llm_call = "@llm" in original_content
-    
-    # Condition to invoke LLM:
-    # 1. Not an echo command (response_payload will be None if echo wasn't processed)
-    # 2. Not a message sent by self
-    # 3. Either (explicit @llm call) OR (this worker is the active agent for the session)
     should_invoke_llm = (response_payload is None) and \
                         (not sender_is_self) and \
                         (is_explicit_llm_call or is_active_agent)
 
     if should_invoke_llm:
-        content_for_llm = original_content.replace("@llm", "").strip() if is_explicit_llm_call else original_content.strip()
+        # If it's an implicit call (is_active_agent is true, is_explicit_llm_call is false),
+        # content_for_llm_input is already original_content.strip().
+        # If it's an explicit call, content_for_llm_input has been adjusted.
         
-        if not content_for_llm: 
-            print(f"Worker ({AGENT_ID}): No content for LLM after stripping command or empty message. Session: {incoming_session_id}")
-            return {"status": "SUCCESS"} # Successfully did nothing if no content
+        # If the LLM is being invoked and the resulting content for it is empty, then do nothing.
+        if not content_for_llm_input:
+            print(f"Worker ({AGENT_ID}): No content for LLM. Explicit call: {is_explicit_llm_call}, Active agent: {is_active_agent}. Session: {incoming_session_id}")
+            return {"status": "SUCCESS"} 
 
         llm_reply_text = ""
-        print(f"Worker ({AGENT_ID}): Preparing to invoke LLM. Active: {is_active_agent}, Explicit: {is_explicit_llm_call}. Content: '{content_for_llm}'")
+        # Use content_for_llm_input for the LLM
+        print(f"Worker ({AGENT_ID}): Preparing to invoke LLM. Active: {is_active_agent}, Explicit: {is_explicit_llm_call}. Content: '{content_for_llm_input}'")
 
         try:
             openai_api_key = os.getenv("OPENAI_API_KEY")
