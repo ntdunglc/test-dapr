@@ -7,6 +7,7 @@ import json
 import time
 import os # Added for API key check
 import asyncio
+import traceback # Added for printing stack traces
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -318,6 +319,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
 
         except Exception as e:
             print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (Gemini backend): {e}")
+            traceback.print_exc() # Print the full stack trace
             response_payload = {
                 "sender_id": AGENT_ID,
                 "content": f"Error processing LLM request.", # Removed "@" to prevent loop
