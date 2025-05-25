@@ -150,7 +150,7 @@ async function loadChatSessionsFromServer() {
         if (response.ok) {
             const serverSessions = await response.json();
             serverSessions.forEach(session => {
-                const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${session.id.substring(0, 8)})`;
                 knownInteractions[session.id] = {
                     id: session.id,
                     type: 'chat',
@@ -199,7 +199,7 @@ async function createNewChatSession() {
         });
         if (response.ok) {
             const session = await response.json();
-            const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+            const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (${session.id.substring(0, 8)})`;
             knownInteractions[session.id] = { 
                 id: session.id,
                 type: 'chat',
