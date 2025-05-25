@@ -125,7 +125,7 @@ async def register_agent(agent: Agent):
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
 
-@app.get("/agents", response_model=List[Agent])
+@app.get("/api/agents", response_model=List[Agent]) # Changed path to /api/agents
 async def get_registered_agents():
     """Get a list of currently registered agents (from in-memory cache)."""
     return list(registered_agents_cache.values())
