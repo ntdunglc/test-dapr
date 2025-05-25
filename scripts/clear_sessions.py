@@ -39,13 +39,18 @@ async def clear_all_data():
             all_session_ids = []
             try:
                 state = await d.get_state(store_name=STATE_STORE_NAME, key=ALL_SESSIONS_LIST_KEY)
-                if state.data:
-                    all_session_ids = json.loads(state.data)
+                if state.data: # Check if data is not None and not empty bytes
+                    decoded_data = state.data.decode('utf-8')
+                    all_session_ids = json.loads(decoded_data)
                     print(f"Found {len(all_session_ids)} chat session IDs in list '{ALL_SESSIONS_LIST_KEY}': {all_session_ids}")
                 else:
-                    print(f"Chat session ID list '{ALL_SESSIONS_LIST_KEY}' not found or empty.")
+                    print(f"Chat session ID list '{ALL_SESSIONS_LIST_KEY}' not found or empty (state.data is None or empty bytes). Raw data: {state.data!r}")
+            except json.JSONDecodeError as jde:
+                print(f"Error decoding JSON from session ID list '{ALL_SESSIONS_LIST_KEY}': {jde}. Raw data: {state.data!r if 'state' in locals() and hasattr(state, 'data') else 'N/A'}")
+                all_session_ids = [] # Ensure it's a list for subsequent logic
             except Exception as e:
-                print(f"Error fetching chat session ID list '{ALL_SESSIONS_LIST_KEY}': {e}")
+                print(f"Error fetching or processing chat session ID list '{ALL_SESSIONS_LIST_KEY}': {e}. Raw data: {state.data!r if 'state' in locals() and hasattr(state, 'data') else 'N/A'}")
+                all_session_ids = [] # Ensure it's a list
 
             if all_session_ids:
                 for session_id in all_session_ids:
@@ -75,14 +80,19 @@ async def clear_all_data():
             all_job_ids = []
             try:
                 state = await d.get_state(store_name=STATE_STORE_NAME, key=ALL_JOBS_LIST_KEY)
-                if state.data:
+                if state.data: # Check if data is not None and not empty bytes
                     # Assuming job IDs are stored as a JSON list, similar to session IDs
-                    all_job_ids = json.loads(state.data) 
+                    decoded_data = state.data.decode('utf-8')
+                    all_job_ids = json.loads(decoded_data) 
                     print(f"Found {len(all_job_ids)} job IDs in list '{ALL_JOBS_LIST_KEY}': {all_job_ids}")
                 else:
-                    print(f"Job ID list '{ALL_JOBS_LIST_KEY}' not found or empty.")
+                    print(f"Job ID list '{ALL_JOBS_LIST_KEY}' not found or empty (state.data is None or empty bytes). Raw data: {state.data!r}")
+            except json.JSONDecodeError as jde:
+                print(f"Error decoding JSON from job ID list '{ALL_JOBS_LIST_KEY}': {jde}. Raw data: {state.data!r if 'state' in locals() and hasattr(state, 'data') else 'N/A'}")
+                all_job_ids = [] # Ensure it's a list for subsequent logic
             except Exception as e:
-                print(f"Error fetching job ID list '{ALL_JOBS_LIST_KEY}': {e}")
+                print(f"Error fetching or processing job ID list '{ALL_JOBS_LIST_KEY}': {e}. Raw data: {state.data!r if 'state' in locals() and hasattr(state, 'data') else 'N/A'}")
+                all_job_ids = [] # Ensure it's a list
 
             if all_job_ids:
                 for job_id in all_job_ids:
