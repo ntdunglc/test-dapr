@@ -8,6 +8,10 @@ app = FastAPI()
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+@app.get("/")
+async def read_index():
+    return FileResponse('static/index.html')
+
 # Proxy API calls to coordinator
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request):
@@ -50,10 +54,6 @@ async def proxy(path: str, request: Request):
             status_code=response.status_code,
             headers=proxied_headers
         )
-
-@app.get("/")
-async def read_index():
-    return FileResponse('static/index.html')
 
 if __name__ == "__main__":
     import uvicorn
