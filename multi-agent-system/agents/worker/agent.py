@@ -266,13 +266,23 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     # If the job was a user_task and an LLM response was generated, send it as a chat message
     if job_data.get("task_type") == "user_task" and isinstance(result, dict) and "llm_response" in result:
         llm_chat_content = result["llm_response"]
+        
+        job_session_id_for_agent = job_data['id'] # This was used as session_id for the agent
+        agent_for_job = dapr_agent_instances.get(job_session_id_for_agent)
+        
+        ai_sender_id_for_job_chat = AGENT_ID # Default
+        if agent_for_job and hasattr(agent_for_job, 'name'):
+            ai_sender_id_for_job_chat = agent_for_job.name
+        else:
+            print(f"Worker ({AGENT_ID}): Warning - DaprAgent instance for job {job_session_id_for_agent} (or its name) not found in cache when preparing chat message. Defaulting sender_id to {AGENT_ID}.")
+
         chat_payload = {
-            "sender_id": AGENT_ID,
+            "sender_id": ai_sender_id_for_job_chat, # Use the specific agent's name
             "content": llm_chat_content,
             "timestamp": datetime.now().isoformat(),
             "session_id": job_data['id'] # Use job_id as session_id for the chat message
         }
-        print(f"Worker ({AGENT_ID}): Sending LLM job response as chat message for job {job_data['id']}")
+        print(f"Worker ({AGENT_ID}): Sending LLM job response as chat message from sender '{ai_sender_id_for_job_chat}' for job {job_data['id']}")
         await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
@@ -430,15 +440,15 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     llm_reply_text = "LLM agent did not return a text response."
             
             response_payload = {
-                "sender_id": AGENT_ID,
+                "sender_id": current_dapr_agent.name, # Use the agent's actual name
                 "content": llm_reply_text, 
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
-            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent (OpenAI backend): {response_payload}")
+            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent (OpenAI backend) as sender '{current_dapr_agent.name}': {response_payload}")
 
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (OpenAI backend): {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (OpenAI backend) for agent '{current_dapr_agent.name}': {e}")
             traceback.print_exc()
             response_payload = {
                 "sender_id": AGENT_ID,
