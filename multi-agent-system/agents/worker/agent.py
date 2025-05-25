@@ -282,7 +282,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                         ],
                         memory=session_memory,
                         tools=[], 
-                        model="gemini-1.5-flash-latest", # Or "gemini-pro", "gemini-2.0-flash" as per docs
+                        model="gemini-2.0-flash", # Changed to a model explicitly in Google's OpenAI compatibility docs
                         llm_client_args=llm_client_args 
                     )
                     dapr_agent_instances[incoming_session_id] = agent_instance
