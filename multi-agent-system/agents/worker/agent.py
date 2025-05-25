@@ -10,8 +10,8 @@ import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from google.adk.agents import LlmAgent # Changed from Agent to LlmAgent
-# InferenceContext, InferenceRequest, InferenceResponse are not directly used for LlmAgent.invoke with dicts
+from google.adk.agents import LlmAgent
+from google.adk.core import InferenceRequest, StandardInput, InferenceContext # Re-adding for process method
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -264,15 +264,40 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 adk_llm_agent_instance = AdkLlmGreeterAgent()
                 print(f"Worker ({AGENT_ID}): Invoking ADK LLM agent '{adk_llm_agent_instance.name}' with input: '{content_for_adk}'")
 
-                # Invoke the ADK LlmAgent
-                # The LlmAgent's invoke method is async
-                adk_response_payload_dict = await adk_llm_agent_instance.invoke({"text": content_for_adk})
+                # Invoke the ADK LlmAgent using the process method
+                # The process method is typically synchronous for LlmAgent if it makes a direct LLM call.
+                # We'll run it in a thread to keep our FastAPI endpoint async.
                 
-                if isinstance(adk_response_payload_dict, dict) and "text" in adk_response_payload_dict:
-                    adk_reply_text = adk_response_payload_dict["text"]
+                # Construct an InferenceRequest
+                # For LlmAgent, the input data might be simpler, often just text.
+                # The ADK framework usually wraps this. For direct calls, we might need to adapt.
+                # LlmAgent's process method expects an InferenceRequest.
+                # The 'instruction' is part of the agent's definition.
+                # The 'text' from the user is the primary input for this turn.
+                
+                # Create a minimal InferenceRequest. The LlmAgent will use its configured model and instruction.
+                # The StandardInput is a common way to pass text.
+                adk_request = InferenceRequest(data=StandardInput(text=content_for_adk))
+
+                # The LlmAgent.process method might be synchronous.
+                # If LlmAgent.process is async, then direct await is fine.
+                # If it's sync, use asyncio.to_thread.
+                # Let's assume LlmAgent.process itself is synchronous as it often directly calls the LLM client.
+                # However, the example showed 'invoke' as async. Let's try 'process' as async first.
+                # If LlmAgent.process is not an async method, this will error.
+                # The ADK LlmAgent's `process` method is indeed synchronous.
+                
+                adk_response = await asyncio.to_thread(
+                    adk_llm_agent_instance.process, # Use process method
+                    adk_request,
+                    InferenceContext() # Default context
+                )
+                
+                if adk_response and adk_response.data and hasattr(adk_response.data, 'text'):
+                    adk_reply_text = adk_response.data.text
                 else:
-                    print(f"Worker ({AGENT_ID}): Unexpected ADK response structure: {adk_response_payload_dict}")
-                    adk_reply_text = f"ADK LLM processed, but response format was unexpected: {str(adk_response_payload_dict)[:100]}"
+                    print(f"Worker ({AGENT_ID}): Unexpected ADK response structure: {adk_response}")
+                    adk_reply_text = f"ADK LLM processed, but response format was unexpected: {str(adk_response)[:100]}"
             
             response_payload = {
                 "sender_id": AGENT_ID, 
