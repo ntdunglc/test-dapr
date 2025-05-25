@@ -362,10 +362,14 @@ function openSubmitJobModal() {
     console.log('Populating agent select in modal with cache:', registered_agents_cache); // Debug log
     if (registered_agents_cache && Object.keys(registered_agents_cache).length > 0) {
         Object.values(registered_agents_cache).forEach(agent => {
-            const option = document.createElement('option');
-            option.value = agent.id;
-            option.textContent = `${agent.name} (${agent.id.substring(0,8)})`;
-            jobAgentSelect.appendChild(option);
+            if (agent && agent.id && agent.name) {
+                const option = document.createElement('option');
+                option.value = agent.id;
+                option.textContent = `${agent.name} (${agent.id.substring(0,8)})`;
+                jobAgentSelect.appendChild(option);
+            } else {
+                console.warn('Skipping agent in dropdown due to missing id or name:', agent);
+            }
         });
     } else {
         // Optionally, fetch agents if cache is empty, or disable specific agent selection
