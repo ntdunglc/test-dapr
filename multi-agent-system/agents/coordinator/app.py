@@ -71,6 +71,8 @@ websocket_connections: Dict[str, WebSocket] = {}
 # For persistence, a more robust solution would involve querying/indexing the state store.
 registered_agents_cache: Dict[str, Agent] = {}
 
+ALL_SESSIONS_LIST_KEY = "_internal_all_session_ids"
+
 
 # Custom TopicEvent model to make 'route' field optional
 class CustomTopicEvent(BaseModel):
@@ -154,63 +156,50 @@ async def create_session(request_data: CreateSessionRequest): # Use the request 
         key=f"coordinator-session-{session.id}", # Prefixed to distinguish from chat agent's conversation state
         value=session.model_dump_json()
     )
+
+    # Add session ID to the global list of sessions
+    try:
+        session_ids_state = await dapr_client.get_state(store_name="statestore", key=ALL_SESSIONS_LIST_KEY)
+        session_ids = json.loads(session_ids_state.data) if session_ids_state.data else []
+    except Exception as e:
+        print(f"Coordinator: Error fetching session ID list: {e}. Initializing new list.")
+        session_ids = []
     
+    if session.id not in session_ids:
+        session_ids.append(session.id)
+        await dapr_client.save_state(store_name="statestore", key=ALL_SESSIONS_LIST_KEY, value=json.dumps(session_ids))
+        print(f"Coordinator: Added session {session.id} to global list. Total sessions: {len(session_ids)}")
+
     return session # Return the full session object
 
-@app.get("/api/sessions")
+@app.get("/api/sessions", response_model=List[Session])
 async def get_sessions():
-    """List all chat session IDs by looking at chat agent's conversation states."""
-    # This queries for keys created by the chat agent: conversation-<session_id>
-    # A more robust way might involve the chat agent explicitly registering sessions,
-    # or the coordinator maintaining its own list of session IDs it has created.
-    # For now, we infer from chat agent's state.
-    query = {
-        "filter": {
-            "EQ": {"key": "conversation-*"} # This filter might not be supported by all state stores or Dapr query APIs directly.
-                                         # A simpler approach is to list all keys and filter client-side,
-                                         # or use a specific query if supported.
-                                         # Dapr Python SDK get_bulk_state doesn't support wildcard keys.
-                                         # We'll have to rely on the coordinator's own created sessions for now,
-                                         # or assume the chat agent creates a 'conversation-global' if no session is active.
-                                         # Let's list sessions created by the coordinator for now.
-        }
-    }
-    # Due to Dapr state query limitations for general key patterns without specific query capabilities in SDK,
-    # we will list sessions that the coordinator itself has created and stored.
-    # This means only sessions explicitly created via /sessions/create will be listed.
-    # A more advanced solution would be needed for a truly comprehensive list from chat-agent state.
+    """List all chat sessions known to the coordinator."""
+    sessions_list = []
+    try:
+        session_ids_state = await dapr_client.get_state(store_name="statestore", key=ALL_SESSIONS_LIST_KEY)
+        session_ids = json.loads(session_ids_state.data) if session_ids_state.data else []
+        
+        print(f"Coordinator: Fetched session ID list for /api/sessions. Found {len(session_ids)} IDs: {session_ids}")
 
-    # For simplicity, let's assume we list sessions the coordinator has created.
-    # This requires storing session IDs in a list or querying for "coordinator-session-*"
-    # Let's refine this to query for "coordinator-session-*" keys.
-    # However, Dapr SDK's get_bulk_state doesn't support wildcard key fetching.
-    # And query_state is for specific query languages (e.g. JSON query for Redis).
+        for session_id in session_ids:
+            session_state = await dapr_client.get_state(store_name="statestore", key=f"coordinator-session-{session_id}")
+            if session_state.data:
+                try:
+                    session_data = json.loads(session_state.data)
+                    sessions_list.append(Session(**session_data))
+                except Exception as e:
+                    print(f"Coordinator: Error parsing session data for ID {session_id}: {e}")
+            else:
+                print(f"Coordinator: No session data found for ID {session_id} listed in global list.")
+                # Optionally, clean up this ID from ALL_SESSIONS_LIST_KEY if it's stale
 
-    # Simplification: We will return sessions from the coordinator's in-memory cache of created sessions
-    # This is not robust across coordinator restarts.
-    # A better approach would be to store a list of session_ids in the state store.
-    # For now, let's return an empty list, as implementing robust session listing from state store
-    # without proper query support or a dedicated list is complex.
-    # The UI will create sessions and can store them locally.
-    # Let's return sessions from the coordinator's state store if we stored them with a specific prefix.
+    except Exception as e:
+        print(f"Coordinator: Error fetching or processing session list for /api/sessions: {e}")
+        # Return empty list on error or if the list key doesn't exist
     
-    # Given the constraints, the most straightforward way to list sessions created by the coordinator
-    # is if we had a dedicated list in the state store. Since we don't,
-    # and querying by prefix is not directly supported by get_bulk_state,
-    # this endpoint will be hard to implement robustly without further changes to how sessions are tracked.
-
-    # Let's assume for now that the UI will manage its known sessions,
-    # and this endpoint can be a placeholder or enhanced later.
-    # For a first pass, we can return sessions stored by the coordinator.
-    # This requires iterating through all keys, which is not efficient or directly supported.
-
-    # Fallback: Return an empty list. The UI will create sessions and can manage them.
-    # This part needs a more robust design for production.
-    # For this exercise, we'll return an empty list and let the UI drive session creation and local tracking.
-    # The chat agent will still store history per session_id it receives.
-    # The UI will need to remember the session IDs it creates.
-    print("Warning: /api/sessions currently returns an empty list. UI should manage its own session IDs.")
-    return []
+    print(f"Coordinator: Returning {len(sessions_list)} sessions for /api/sessions.")
+    return sessions_list
 
 
 # Job Management

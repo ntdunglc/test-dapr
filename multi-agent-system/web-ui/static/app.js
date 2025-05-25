@@ -83,27 +83,58 @@ async function initializeApp() {
     document.getElementById('user-info').textContent = `User ID: ${persistentUserId}`;
 
     loadInitialData(); // For agents and jobs
-    loadSessionsFromLocalStorage();
-    renderSessionList();
+    await loadSessionsFromServer(); // Load sessions from server first
 
+    // If no sessions after server load, create one. Otherwise, select one.
     if (Object.keys(knownSessions).length === 0) {
-        await createNewSession(); // Create a default session if none exist
+        await createNewSession(); 
     } else {
-        // Try to load the last active session, or the most recent one
         const lastActiveId = localStorage.getItem('currentSessionId');
         if (lastActiveId && knownSessions[lastActiveId]) {
             await switchSession(lastActiveId);
         } else {
-            // Fallback to the most recent session if last active is not found or invalid
             const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
             if (sortedSessions.length > 0) {
                 await switchSession(sortedSessions[0].id);
-            } else {
-                 await createNewSession(); // Should not happen if previous block created one
-            }
+            } 
+            // If still no session (e.g. localStorage had an ID for a now-deleted session), createNewSession would have been called.
         }
     }
 }
+
+async function loadSessionsFromServer() {
+    console.log("Loading sessions from server...");
+    try {
+        const response = await fetch('/api/sessions');
+        if (response.ok) {
+            const serverSessions = await response.json();
+            knownSessions = {}; // Reset local cache with server data as source of truth
+            serverSessions.forEach(session => {
+                // Generate a client-side friendly name if not provided by server, or use server's if available
+                const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                knownSessions[session.id] = {
+                    id: session.id,
+                    name: sessionName, // Or use session.name if server provided it
+                    timestamp: session.created_at,
+                    user_id: session.user_id
+                };
+            });
+            console.log(`Loaded ${Object.keys(knownSessions).length} sessions from server.`);
+        } else {
+            console.error("Failed to load sessions from server:", response.status, await response.text());
+            // Fallback to local storage if server fetch fails? Or just start fresh?
+            // For now, if server fails, knownSessions might be empty or retain previous local state.
+            // Let's clear it to reflect server failure, then createNewSession will trigger if empty.
+            knownSessions = {};
+        }
+    } catch (error) {
+        console.error("Error fetching sessions from server:", error);
+        knownSessions = {}; // Clear on error
+    }
+    renderSessionList(); // Update UI based on fetched/cleared sessions
+    saveSessionsToLocalStorage(); // Persist the server-fetched (or cleared) list
+}
+
 
 function saveSessionsToLocalStorage() {
     localStorage.setItem('knownSessions', JSON.stringify(knownSessions));
@@ -112,12 +143,13 @@ function saveSessionsToLocalStorage() {
     }
 }
 
-function loadSessionsFromLocalStorage() {
+function loadSessionsFromLocalStorage() { // This is now more of a fallback or for currentSessionId
     const storedSessions = localStorage.getItem('knownSessions');
     if (storedSessions) {
-        knownSessions = JSON.parse(storedSessions);
+        // This might be overwritten by server load, which is intended.
+        // knownSessions = JSON.parse(storedSessions); 
     }
-    // currentSessionId will be loaded and set by initializeApp logic
+    // currentSessionId is still useful to remember the last active tab.
 }
 
 async function createNewSession() {

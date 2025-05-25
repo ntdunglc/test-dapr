@@ -1,0 +1,2 @@
+dapr==1.12.0 
+# Adjust version to match your project's Dapr SDK version if necessary
