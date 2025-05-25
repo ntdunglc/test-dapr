@@ -88,6 +88,16 @@ Follow these steps from the root directory of the `multi-agent-system` project.
 *   **Redis Connection Issues:**
     *   Ensure Redis is running. `dapr init` usually installs and runs it in a Docker container. You can check with `docker ps`.
     *   Verify the Redis host and port in `components/statestore.yaml` and `components/pubsub.yaml` (default is `localhost:6379`).
+*   **Authentication Issues (e.g., `/protected` route returns "Not authenticated" or token errors):**
+    *   When testing authentication endpoints like `/auth/login` and `/protected` with `curl`, ensure you are correctly extracting the `access_token` from the JSON response. Using a tool like `jq` is more reliable than `sed` for parsing JSON. For example:
+        ```bash
+        TOKEN_RESPONSE=$(curl -s -X POST -d "username=testuser&password=testpass" http://localhost:8000/auth/login)
+        ACCESS_TOKEN=$(echo $TOKEN_RESPONSE | jq -r .access_token)
+        echo "Access Token: $ACCESS_TOKEN"
+        curl -v -X GET -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:8000/protected
+        ```
+    *   Check the coordinator logs for specific `JWTError` messages if you receive "Could not validate credentials". The error type (e.g., `InvalidSignatureError`, `ExpiredSignatureError`) will be logged and included in the HTTP response.
+    *   Ensure the `SECRET_KEY` in `agents/coordinator/app.py` is consistent and used correctly (encoded to bytes) for both encoding and decoding tokens.
 *   **WebSocket Connection Fails:**
     *   Ensure the coordinator agent (`appID: coordinator`) is running correctly (check Dapr logs). It's configured to run on port 8000.
     *   The Web UI's `app.js` connects to `ws://localhost:8000/ws/...`. The `server.py` for the UI runs on port 8080 and proxies API calls, but WebSockets connect directly.
@@ -97,6 +107,10 @@ Follow these steps from the root directory of the `multi-agent-system` project.
 *   **State Not Persisting:**
     *   Check the `statestore` component configuration.
     *   Ensure Redis is accessible and functioning.
+*   **Chat History Not Loading or Returns 404 ("Not Found"):**
+    *   The Web UI (`web-ui/server.py`) proxies requests for `/api/chat/history/global` to the `chat` agent at `http://localhost:8002/chat/history/global`.
+    *   If you see a 404 error in the browser's network tab for this request, it means the `chat` agent itself is returning a 404.
+    *   Verify the `get_chat_history` function in `agents/chat/app.py` and how it handles the `session_id` "global". Ensure the endpoint `/chat/history/global` is correctly implemented and that data exists for this key in the statestore.
 *   **Port Conflicts:**
     *   If any of the default ports (8000, 8001, 8002 for apps; 8080 for UI; Dapr default ports) are in use, you may need to adjust them in `dapr.yaml` for the apps, `web-ui/server.py` for the UI, or Dapr configurations.
 
