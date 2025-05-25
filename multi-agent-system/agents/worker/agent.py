@@ -263,6 +263,11 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         print(f"Worker ({AGENT_ID}): Sending echo reply: {response_payload}")
 
     elif "@llm" in original_content:
+        # Prevent processing its own messages if they contain the command
+        if message_data.get("sender_id") == AGENT_ID:
+            print(f"Worker ({AGENT_ID}): Skipping self-generated message containing @llm: {original_content}")
+            return {"status": "DROP", "error": "Skipping self-generated @llm message"}
+
         incoming_session_id = message_data.get("session_id")
         if not incoming_session_id:
             print(f"Worker ({AGENT_ID}): Received @llm request without session_id. Cannot reply specifically.")
@@ -286,6 +291,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 chat_history_response = await dapr_client.invoke_method(
                     app_id="chat",
                     method_name=f"chat/history/{incoming_session_id}",
+                    data=None, # Explicitly pass data as None for GET
                     http_verb="GET"
                 )
                 if chat_history_response.data:
@@ -351,7 +357,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     async for event in adk_runner.run_async(
                         user_id=adk_user_id,
                         session_id=current_adk_session_id,
-                        history_override=history_for_llm if history_for_llm else None, # Pass None if empty
+                        history=history_for_llm if history_for_llm else None, # Changed to 'history'
                         new_message=new_llm_message
                     ):
                         if event.author != 'user' and event.content and event.content.parts:
@@ -376,7 +382,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
             print(f"Worker ({AGENT_ID}): Error invoking LLM agent: {e}")
             response_payload = {
                 "sender_id": AGENT_ID,
-                "content": f"Error processing @llm request.",
+                "content": f"Error processing LLM request.", # Removed "@" to prevent loop
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
