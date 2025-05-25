@@ -21,6 +21,11 @@ async def get_conversation_state(session_id: str):
             key=conversation_key
         )
         
+        print(f"Raw state object from Dapr: {state}")
+        print(f"State ETag: {state.etag}")
+        print(f"State Data Type: {type(state.data)}")
+        print(f"State Data Content (repr): {state.data!r}") # Use repr to see details like b'' for empty bytes
+
         if state.data:
             print(f"\n--- Conversation State for session_id: {session_id} (key: {conversation_key}) ---")
             try:
@@ -29,13 +34,13 @@ async def get_conversation_state(session_id: str):
                 print(json.dumps(messages_list, indent=2))
             except json.JSONDecodeError:
                 print("Error: Could not decode state data as JSON. Raw data:")
-                print(state.data)
+                print(state.data) # Print raw bytes/str if JSON decoding fails
             except Exception as e:
                 print(f"Error processing state data: {e}")
                 print("Raw data:")
-                print(state.data)
+                print(state.data) # Print raw bytes/str on other errors
         else:
-            print(f"No conversation state found for session_id: {session_id} (key: {conversation_key})")
+            print(f"No conversation state found for session_id: {session_id} (key: {conversation_key}) (state.data was falsy)")
             
     except Exception as e:
         print(f"An error occurred: {e}")
