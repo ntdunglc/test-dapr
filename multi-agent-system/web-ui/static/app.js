@@ -50,8 +50,12 @@ function handleMessage(message) {
             }
             break;
         case 'agent_update':
-            console.log("UI: Received agent_update message:", message.data); // Added log
-            updateAgentDisplay(message.data);
+            // console.log("UI: Received agent_update message (agent panel removed):", message.data);
+            // Still update the cache for the job submission modal
+            if (message.data && message.data.id) {
+               registered_agents_cache[message.data.id] = message.data;
+               console.log(`Agent cache updated for ${message.data.id} via WebSocket.`);
+            }
             break;
     }
 }

@@ -146,12 +146,12 @@ button:hover {
     background: #0056b3;
 }
 
-.job-item, .agent-item {
+.job-item { /* .agent-item selector removed */
     padding: 10px;
     border-bottom: 1px solid #eee;
 }
 
-.job-item:last-child, .agent-item:last-child {
+.job-item:last-child { /* .agent-item selector removed */
     border-bottom: none;
 }
 
