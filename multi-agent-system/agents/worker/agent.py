@@ -113,6 +113,7 @@ async def execute_job(job_data: dict) -> dict:
                     session_memory = ConversationDaprStateMemory(
                         store_name="statestore", 
                         session_id=job_session_id, # Tie memory to job_id
+                        key_prefix="conversation-", # Align with chat agent's storage key
                         dapr_client=dapr_client
                     )
                     agent_instance = DaprAgent(
@@ -405,6 +406,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     session_memory = ConversationDaprStateMemory(
                         store_name="statestore", 
                         session_id=incoming_session_id,
+                        key_prefix="conversation-", # Align with chat agent's storage key
                         dapr_client=dapr_client
                     )
                     agent_instance = DaprAgent(
