@@ -193,8 +193,8 @@ async function createNewChatSession() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ 
-                user_id: persistentUserId,
-                agent_id: "worker-1" // Default new chats to be handled by LLM worker
+                user_id: persistentUserId
+                // agent_id: "worker-1" // Removed: No longer defaulting new chats to LLM worker
             })
         });
         if (response.ok) {
