@@ -15,18 +15,18 @@
         
         <div class="main-layout">
             <!-- Sessions Sidebar -->
-            <div id="sessions-sidebar"> <!-- Panel class removed, will be a flex container -->
-                <div class="panel" id="chat-sessions-panel"> <!-- New wrapper for chat sessions -->
-                    <h2>Chat Sessions</h2>
-                    <button id="new-chat-button">New Chat</button>
-                    <ul id="sessions-list">
-                        <!-- Session items will be populated here -->
+            <div id="sessions-sidebar"> 
+                <div class="panel" id="interactions-panel"> 
+                    <div class="panel-header">
+                        <h2>Interactions</h2>
+                        <div class="panel-actions">
+                            <button id="new-chat-button">New Chat</button>
+                            <button id="new-job-button" onclick="openSubmitJobModal()">New Job</button>
+                        </div>
+                    </div>
+                    <ul id="interactions-list">
+                        <!-- Chat sessions and Jobs will be populated here -->
                     </ul>
-                </div>
-                <div class="panel" id="jobs-panel"> <!-- Jobs panel moved here -->
-                    <h2>Jobs</h2>
-                    <button onclick="openSubmitJobModal()">Submit New Job</button>
-                    <ul id="jobs-list"></ul>
                 </div>
             </div>
 

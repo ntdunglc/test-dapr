@@ -40,50 +40,116 @@ body {
     /* width is controlled by .main-layout grid */
 }
 
-#sessions-sidebar > .panel { /* Style for panels directly inside the sidebar */
+#sessions-sidebar > .panel { 
     display: flex;
     flex-direction: column;
-    flex: 1; /* Allows panels to share sidebar height, or grow/shrink */
-    min-height: 0; /* Important for flex children that scroll */
+    flex: 1; 
+    min-height: 0; 
 }
 
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.panel-header h2 {
+    margin: 0;
+}
+
+.panel-actions {
+    display: flex;
+    gap: 10px;
+}
+
+#new-chat-button, #new-job-button {
+    /* General button styles are already defined, specific overrides if needed */
+}
 
 #new-chat-button {
-    margin-bottom: 15px;
-    background-color: #28a745; /* Green color for new chat */
+    background-color: #28a745; 
 }
 #new-chat-button:hover {
     background-color: #218838;
 }
+#new-job-button {
+    background-color: #17a2b8; /* A different color for New Job */
+}
+#new-job-button:hover {
+    background-color: #117a8b;
+}
 
-#sessions-list {
+
+#interactions-list { /* Renamed from sessions-list */
     list-style-type: none;
     padding: 0;
     margin: 0;
     overflow-y: auto;
-    flex-grow: 1; /* Allows list to take available space within its panel */
-    min-height: 0; /* Ensure it can shrink if needed within flex parent */
+    flex-grow: 1; 
+    min-height: 0; 
 }
 
-#sessions-list li {
+#interactions-list li {
     padding: 10px;
     border-bottom: 1px solid #eee;
     cursor: pointer;
     font-size: 0.9em;
 }
 
-#sessions-list li:hover {
+#interactions-list li:hover {
     background-color: #f0f0f0;
 }
 
-#sessions-list li.active-session {
-    background-color: #007bff;
-    color: white;
+#interactions-list li.active-interaction { /* Generic active class */
     font-weight: bold;
 }
 
-#sessions-list li.active-session:hover {
+/* Specific active styles for chat vs job */
+#interactions-list li.active-interaction.type-chat {
+    background-color: #007bff;
+    color: white;
+}
+#interactions-list li.active-interaction.type-chat:hover {
     background-color: #0056b3;
+}
+
+#interactions-list li.active-interaction.type-job {
+    background-color: #17a2b8; /* Teal for active job */
+    color: white;
+}
+#interactions-list li.active-interaction.type-job:hover {
+    background-color: #138496;
+}
+
+/* Styling for job items in the list */
+#interactions-list li .item-type-job-icon {
+    /* content: '💼'; Unicode for briefcase, or use an SVG/font icon */
+    margin-right: 5px;
+    font-weight: bold;
+}
+#interactions-list li .item-type-chat-icon {
+    /* content: '💬'; Unicode for speech bubble */
+    margin-right: 5px;
+    font-weight: bold;
+}
+
+#interactions-list li .job-status-indicator {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    margin-left: 8px;
+    color: white;
+}
+#interactions-list li .job-status-indicator.pending { background-color: #6c757d; }
+#interactions-list li .job-status-indicator.processing { background-color: #17a2b8; }
+#interactions-list li .job-status-indicator.completed { background-color: #28a745; }
+#interactions-list li .job-status-indicator.failed { background-color: #dc3545; }
+
+
+.main-content {
+    /* This will contain the existing grid for agents, jobs, chat */
 }
 
 
@@ -155,35 +221,7 @@ button:hover {
     border-bottom: none;
 }
 
-#jobs-list { 
-    list-style-type: none;
-    padding: 0;
-    margin: 0;
-    flex-grow: 1; /* Allows list to take available space within its panel */
-    overflow-y: auto; /* Enable scrolling for the list */
-    min-height: 0; /* Ensure it can shrink if needed within flex parent */
-}
-
-#jobs-list .job-item {
-    padding: 10px;
-    border-bottom: 1px solid #eee;
-    cursor: pointer;
-}
-
-#jobs-list .job-item:hover {
-    background-color: #f0f0f0;
-}
-
-#jobs-list .job-item.active-job {
-    background-color: #17a2b8; /* A different color to distinguish from active session */
-    color: white;
-    font-weight: bold;
-}
-
-#jobs-list .job-item.active-job:hover {
-    background-color: #138496;
-}
-
+/* Removed #jobs-list and #jobs-list .job-item specific styles as they are merged */
 
 .status {
     display: inline-block;

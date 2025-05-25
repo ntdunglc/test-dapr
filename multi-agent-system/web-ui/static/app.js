@@ -2,8 +2,9 @@ let ws = null;
 const clientId = Math.random().toString(36).substring(7); // This is for WebSocket client_id, distinct from persistent userId
 // let currentSessionId = null; // Replaced by currentChatTarget
 let currentChatTarget = { type: null, id: null }; // type: 'session' or 'job', id: session_id or job_id
-let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
-let known_jobs_cache = {}; // Cache for full job objects
+let knownInteractions = {}; // Unified store for chats and jobs. Keyed by ID.
+                           // Each item: { id, type: 'chat'/'job', name, timestamp, originalData: {}, ...jobSpecificStatus }
+let known_jobs_cache = {}; // Still useful for full job objects if needed, though originalData in knownInteractions might suffice.
 let persistentUserId = null;
 let registered_agents_cache = {}; // Initialize agent cache
 
@@ -63,36 +64,41 @@ function handleMessage(message) {
 
 // Load initial data
 async function loadInitialData() {
-    // Load agents for the modal, not for display
+    // Load agents for the modal
     try {
         const agentsResponse = await fetch('/api/agents');
         if (agentsResponse.ok) {
             const agents = await agentsResponse.json();
-            agents.forEach(agent => { // Populate cache for job submission modal
+            agents.forEach(agent => { 
                 if (agent && agent.id) {
                     registered_agents_cache[agent.id] = agent;
                 }
             });
-            console.log("Agents loaded into cache for modal.");
+            console.log("Agents loaded into cache for job modal.");
         } else {
-            console.error("Failed to load agents for modal cache:", agentsResponse.status, await agentsResponse.text());
+            console.error("Failed to load agents for job modal cache:", agentsResponse.status, await agentsResponse.text());
         }
-    } catch (error) {
-        console.error("Error fetching agents for modal cache:", error);
+    } catch (error)
+        console.error("Error fetching agents for job modal cache:", error);
     }
         
-    // Load recent jobs
+    // Load existing jobs and add them as 'job' type interactions
     try {
-        const jobsResponse = await fetch('/api/jobs'); // Path will be proxied
+        const jobsResponse = await fetch('/api/jobs'); 
         if (jobsResponse.ok) {
-            const jobs = await jobsResponse.json(); // Assuming server returns newest first
-            // Reverse order for processing because updateJobDisplay prepends,
-            // so processing oldest first will result in newest at the top.
-            jobs.reverse().forEach(job => {
-                known_jobs_cache[job.id] = job; // Cache the full job object
-                updateJobDisplay(job);
+            const jobs = await jobsResponse.json(); // Server returns newest first
+            jobs.forEach(job => {
+                known_jobs_cache[job.id] = job; // Keep full job data accessible
+                knownInteractions[job.id] = {
+                    id: job.id,
+                    type: 'job',
+                    name: `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`,
+                    timestamp: job.created_at,
+                    originalData: job,
+                    status: job.status // Store job status for display in list
+                };
             });
-            console.log(`Loaded ${jobs.length} existing jobs and cached them.`);
+            console.log(`Loaded ${jobs.length} existing jobs into interactions list.`);
         } else {
             console.error("Failed to load existing jobs:", jobsResponse.status, await jobsResponse.text());
         }
@@ -107,78 +113,62 @@ async function initializeApp() {
     persistentUserId = getOrSetUserId();
     document.getElementById('user-info').textContent = `User ID: ${persistentUserId}`;
 
-    loadInitialData(); // For agents and jobs
-    await loadSessionsFromServer(); // Load sessions from server first
+    await loadInitialData(); // Loads agents for modal, and jobs into knownInteractions
+    await loadChatSessionsFromServer(); // Load chat sessions into knownInteractions
 
-    // If no sessions after server load, create one. Otherwise, select one.
-    // Prioritize last active target (could be session or job)
+    renderInteractionList(); // Initial render of the merged list
+
+    // Prioritize last active target
     const lastActiveTarget = JSON.parse(localStorage.getItem('currentChatTarget'));
 
-    if (lastActiveTarget && lastActiveTarget.id) {
-        if (lastActiveTarget.type === 'session' && knownSessions[lastActiveTarget.id]) {
-            await switchSession(lastActiveTarget.id);
-        } else if (lastActiveTarget.type === 'job') {
-            // We need to ensure the job exists in the jobs list if we want to focus it.
-            // For now, let's assume jobs are loaded/updated via WebSocket.
-            // If the job is known (e.g. from a previous job_update), focus it.
-            // This part might need refinement if jobs aren't persistently loaded like sessions.
-            const jobElement = document.getElementById(`job-${lastActiveTarget.id}`);
-            if (jobElement) { // A simple check if the job is rendered
-                 await focusJob(lastActiveTarget.id);
-            } else {
-                await selectDefaultSessionOrJob();
-            }
-        } else {
-            await selectDefaultSessionOrJob();
-        }
+    if (lastActiveTarget && lastActiveTarget.id && knownInteractions[lastActiveTarget.id]) {
+        await focusInteraction(lastActiveTarget.id, lastActiveTarget.type);
+    } else if (Object.keys(knownInteractions).length > 0) {
+        // Default to the most recent item in the merged list
+        const sortedInteractions = Object.values(knownInteractions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        await focusInteraction(sortedInteractions[0].id, sortedInteractions[0].type);
     } else {
-        await selectDefaultSessionOrJob();
+        // If no interactions at all, create a new chat session
+        await createNewChatSession();
     }
 }
 
-async function selectDefaultSessionOrJob() {
-    if (Object.keys(knownSessions).length > 0) {
-        const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-        await switchSession(sortedSessions[0].id);
-    } else {
-        // If no sessions, and potentially no jobs to default to, create a new session.
-        await createNewSession();
-    }
-    // If there are jobs but no sessions, one could implement logic to focus a default job.
-}
+// async function selectDefaultSessionOrJob() { // Replaced by logic in initializeApp
+//     if (Object.keys(knownInteractions).length > 0) {
+//         const sortedInteractions = Object.values(knownInteractions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+//         await focusInteraction(sortedInteractions[0].id, sortedInteractions[0].type);
+//     } else {
+//         await createNewChatSession();
+//     }
+// }
 
 
-async function loadSessionsFromServer() {
-    console.log("Loading sessions from server...");
+async function loadChatSessionsFromServer() {
+    console.log("Loading chat sessions from server...");
     try {
         const response = await fetch('/api/sessions');
         if (response.ok) {
             const serverSessions = await response.json();
-            knownSessions = {}; // Reset local cache with server data as source of truth
             serverSessions.forEach(session => {
-                // Generate a client-side friendly name if not provided by server, or use server's if available
                 const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-                knownSessions[session.id] = {
+                knownInteractions[session.id] = {
                     id: session.id,
-                    name: sessionName, // Or use session.name if server provided it
+                    type: 'chat',
+                    name: sessionName,
                     timestamp: session.created_at,
+                    originalData: session,
                     user_id: session.user_id
                 };
             });
-            console.log(`Loaded ${Object.keys(knownSessions).length} sessions from server.`);
+            console.log(`Loaded ${serverSessions.length} chat sessions into interactions list.`);
         } else {
-            console.error("Failed to load sessions from server:", response.status, await response.text());
-            // Fallback to local storage if server fetch fails? Or just start fresh?
-            // For now, if server fails, knownSessions might be empty or retain previous local state.
-            // Let's clear it to reflect server failure, then createNewSession will trigger if empty.
-            knownSessions = {};
+            console.error("Failed to load chat sessions from server:", response.status, await response.text());
         }
     } catch (error) {
-        console.error("Error fetching sessions from server:", error);
-        knownSessions = {}; // Clear on error
+        console.error("Error fetching chat sessions from server:", error);
     }
-    renderSessionList(); // Update UI based on fetched/cleared sessions
-    saveSessionsToLocalStorage(); // Persist the server-fetched (or cleared) list
+    // renderInteractionList(); // Called after all initial data is loaded
+    // saveInteractionsToLocalStorage(); // Persist after all initial data
 }
 
 
@@ -312,43 +302,44 @@ async function loadChatHistory(targetId, targetType) {
     }
 }
 
-function renderSessionList() {
-    const sessionsListElement = document.getElementById('sessions-list');
-    sessionsListElement.innerHTML = '';
+function renderInteractionList() {
+    const interactionsListElement = document.getElementById('interactions-list');
+    interactionsListElement.innerHTML = ''; // Clear existing list
 
-    const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const sortedInteractions = Object.values(knownInteractions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-    sortedSessions.forEach(session => {
+    sortedInteractions.forEach(interaction => {
         const listItem = document.createElement('li');
-        listItem.textContent = session.name;
-        listItem.dataset.sessionId = session.id;
-        if (currentChatTarget.type === 'session' && session.id === currentChatTarget.id) {
-            listItem.classList.add('active-session');
+        listItem.dataset.interactionId = interaction.id;
+        listItem.dataset.interactionType = interaction.type;
+
+        let contentHtml = '';
+        if (interaction.type === 'job') {
+            const job = interaction.originalData;
+            const jobStatus = interaction.status || job.status || 'unknown';
+            contentHtml = `
+                <span class="item-type-job-icon">💼</span>
+                ${interaction.name}
+                <span class="job-status-indicator ${jobStatus}">${jobStatus}</span>
+            `;
+        } else { // 'chat'
+            contentHtml = `<span class="item-type-chat-icon">💬</span> ${interaction.name}`;
         }
-        listItem.onclick = () => switchSession(session.id);
-        sessionsListElement.appendChild(listItem);
+        listItem.innerHTML = contentHtml;
+        
+        if (currentChatTarget.id === interaction.id) {
+            listItem.classList.add('active-interaction', `type-${interaction.type}`);
+        }
+        listItem.onclick = () => focusInteraction(interaction.id, interaction.type);
+        interactionsListElement.appendChild(listItem);
     });
 }
 
-function updateActiveSessionHighlight(activeSessionId) {
-    const sessionListItems = document.querySelectorAll('#sessions-list li');
-    sessionListItems.forEach(item => {
-        item.classList.remove('active-session');
-        if (item.dataset.sessionId === activeSessionId) {
-            item.classList.add('active-session');
-        }
-    });
-}
+// function updateActiveSessionHighlight(activeSessionId) { // Merged into focusInteraction
+// }
 
-function updateActiveJobHighlight(activeJobId) {
-    const jobListItems = document.querySelectorAll('#jobs-list .job-item'); // Assuming jobs are list items or divs with .job-item
-    jobListItems.forEach(item => {
-        item.classList.remove('active-job');
-        if (item.id === `job-${activeJobId}`) { // Assuming job items have id `job-${job.id}`
-            item.classList.add('active-job');
-        }
-    });
-}
+// function updateActiveJobHighlight(activeJobId) { // Merged into focusInteraction
+// }
 
 
 // Job Submission Modal Functions
@@ -359,7 +350,10 @@ const jobDescriptionInput = document.getElementById('job-description');
 function openSubmitJobModal() {
     // Populate agent select
     jobAgentSelect.innerHTML = '<option value="">Any Agent</option>'; // Default option
-    console.log('Populating agent select in modal with cache:', registered_agents_cache); // Debug log
+    let llmWorkerFound = false;
+    const llmWorkerId = "worker-1"; // Assuming this is the ID of your LLM worker
+
+    console.log('Populating agent select in modal with cache:', registered_agents_cache); 
     if (registered_agents_cache && Object.keys(registered_agents_cache).length > 0) {
         Object.values(registered_agents_cache).forEach(agent => {
             if (agent && agent.id && agent.name) {
@@ -367,16 +361,23 @@ function openSubmitJobModal() {
                 option.value = agent.id;
                 option.textContent = `${agent.name} (${agent.id.substring(0,8)})`;
                 jobAgentSelect.appendChild(option);
+                if (agent.id === llmWorkerId) {
+                    llmWorkerFound = true;
+                }
             } else {
                 console.warn('Skipping agent in dropdown due to missing id or name:', agent);
             }
         });
     } else {
-        // Optionally, fetch agents if cache is empty, or disable specific agent selection
         console.log("No agents in cache to populate dropdown. User can only select 'Any Agent'.");
     }
+
+    // Default to LLM worker if available
+    if (llmWorkerFound) {
+        jobAgentSelect.value = llmWorkerId;
+    }
     
-    jobDescriptionInput.value = ''; // Clear previous description
+    jobDescriptionInput.value = ''; 
     jobModal.style.display = 'block';
 }
 
@@ -415,16 +416,38 @@ async function handleModalJobSubmit() {
             console.log('Job submitted from modal:', result.job_id);
             const newJobData = {
                 id: result.job_id,
-                agent_id: selectedAgentId || null,
-                status: "pending", // Initial status
-                task_type: "user_task",
+                agent_id: selectedAgentId || llmWorkerId, // Default to LLM if "Any" was chosen but LLM is preferred
+                status: "pending", 
+                task_type: "user_task", // Or derive from modal if more types are added
                 payload: { description: description },
                 created_at: new Date().toISOString(),
-                result: null, // Initialize result as null
-                completed_at: null // Initialize completed_at as null
+                result: null, 
+                completed_at: null 
             };
-            known_jobs_cache[result.job_id] = newJobData; // Cache the new job
-            updateJobDisplay(newJobData); // Optimistically add/update job display
+            known_jobs_cache[result.job_id] = newJobData; 
+            
+            // Add to knownInteractions
+            knownInteractions[result.job_id] = {
+                id: result.job_id,
+                type: 'job',
+                name: `Job: ${description.substring(0, 20) + "..."}`,
+                timestamp: newJobData.created_at,
+                originalData: newJobData,
+                status: newJobData.status
+            };
+            renderInteractionList(); // Update the unified list
+            await focusInteraction(result.job_id, 'job'); // Focus the new job-interaction
+
+            // Send the job description as the first chat message for this job's interaction history
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'chat',
+                    session_id: result.job_id, // Use job_id as session_id for chat history
+                    content: `Task: ${description}`, // Prefix to indicate it's the task
+                    sender_id: persistentUserId, // Or a system user like "System (Job Task)"
+                }));
+            }
+
         } else {
             console.error('Failed to submit job:', response.status, await response.text());
             alert(`Failed to submit job: ${await response.text()}`);
@@ -480,27 +503,37 @@ function updateJobDisplay(job) {
         jobElement.onclick = () => focusJob(job.id); // Make job item clickable
     }
     
-    // Highlight if it's the current chat target
-    if (currentChatTarget.type === 'job' && currentChatTarget.id === job.id) {
-        jobElement.classList.add('active-job');
-    } else {
-        jobElement.classList.remove('active-job');
-    }
+    // This function is called when a 'job_update' WebSocket message is received.
+    // It needs to update the job's representation in the knownInteractions list.
     
-    // Update cache with the latest job data (e.g., status updates from WebSocket)
-    known_jobs_cache[job.id] = job;
+    known_jobs_cache[job.id] = job; // Update the detailed job cache
 
-    const description = job.payload && job.payload.description ? job.payload.description : 'No description';
-    jobElement.innerHTML = `
-        <div>
-            <strong>Job ${job.id.substring(0, 8)}</strong>
-            <span class="status ${job.status}">${job.status}</span>
-        </div>
-        <div class="job-description">Desc: ${description.substring(0,50)}${description.length > 50 ? '...' : ''}</div>
-        <div>Type: ${job.task_type}</div>
-        ${job.agent_id ? `<div>Agent: ${job.agent_id.substring(0,8)}</div>` : '<div>Agent: Any</div>'}
-        ${job.result ? `<div>Result: ${JSON.stringify(job.result).substring(0,50)}...</div>` : ''}
-    `;
+    if (knownInteractions[job.id] && knownInteractions[job.id].type === 'job') {
+        knownInteractions[job.id].originalData = job; // Update the originalData
+        knownInteractions[job.id].status = job.status; // Update status for list display
+        knownInteractions[job.id].name = `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`;
+        // Potentially update timestamp if job.updated_at exists and is relevant for sorting
+        // knownInteractions[job.id].timestamp = job.updated_at || job.created_at; 
+        renderInteractionList(); // Re-render the list to show updated status/info
+    } else {
+        // If job wasn't in knownInteractions (e.g., loaded by another client), add it.
+        knownInteractions[job.id] = {
+            id: job.id,
+            type: 'job',
+            name: `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`,
+            timestamp: job.created_at,
+            originalData: job,
+            status: job.status
+        };
+        renderInteractionList();
+    }
+
+    // If the updated job is the currently focused interaction, refresh its view (e.g. title, original task if it changed)
+    if (currentChatTarget.type === 'job' && currentChatTarget.id === job.id) {
+        // Re-focus to refresh the chat panel title and potentially the original task display
+        // This is a bit heavy-handed, could be more targeted.
+        focusInteraction(job.id, 'job'); 
+    }
 }
 
 // function updateAgentDisplay(agent) { // Function removed as panel is gone
@@ -529,7 +562,8 @@ document.getElementById('chat-input').addEventListener('keypress', (e) => {
     }
 });
 
-document.getElementById('new-chat-button').addEventListener('click', createNewSession);
+document.getElementById('new-chat-button').addEventListener('click', createNewChatSession);
+// The 'new-job-button' already has an onclick="openSubmitJobModal()" in the HTML.
 
 // Initialize
 initWebSocket();
