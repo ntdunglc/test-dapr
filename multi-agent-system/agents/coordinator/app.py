@@ -73,6 +73,7 @@ websocket_connections: Dict[str, WebSocket] = {}
 registered_agents_cache: Dict[str, Agent] = {}
 
 ALL_SESSIONS_LIST_KEY = "_internal_all_session_ids"
+ALL_JOBS_LIST_KEY = "_internal_all_job_ids"
 
 
 # Custom TopicEvent model to make 'route' field optional
