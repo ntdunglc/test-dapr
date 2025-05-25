@@ -263,18 +263,34 @@ async def publish_chat_message(sender_id: str, content: str):
 @dapr_app.subscribe(pubsub="pubsub", topic="job-completed")
 async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle job completion events"""
+    print(f"Coordinator Agent: Received job_completed event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     job_data = event.data
-    if isinstance(job_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
+
+    if isinstance(job_data, str):
+        print(f"Coordinator Agent: event.data for job_completed is a string. Attempting json.loads on: {repr(job_data)}")
         try:
             job_data = json.loads(job_data)
+            print(f"Coordinator Agent: Successfully parsed string event.data for job_completed. New type: {type(job_data)}")
         except json.JSONDecodeError as e:
-            print(f"Coordinator: Failed to decode JSON job_data: {e}. Data: {event.data}")
-            return {"status": "DROP"} # Or RETRY, depending on desired behavior
-    
+            print(f"Coordinator Agent: Failed to decode JSON from string event.data for job_completed: {e}. Original data: {repr(event.data)}")
+            return {"status": "DROP", "error": "event.data string for job_completed is not valid JSON"}
+    elif not isinstance(job_data, dict):
+        print(f"Coordinator Agent: event.data for job_completed is neither a string nor a dict. Type: {type(job_data)}. Value: {repr(job_data)}")
+        return {"status": "DROP", "error": "event.data for job_completed has unexpected type"}
+
     # Update job state
+    try:
+        job_id = job_data['id']
+    except KeyError:
+        print(f"Coordinator Agent: 'id' key missing in job_completed data. Data: {repr(job_data)}")
+        return {"status": "DROP", "error": "missing 'id' in job_completed data"}
+    except TypeError:
+        print(f"Coordinator Agent: job_completed data is not a dictionary. Data: {repr(job_data)}")
+        return {"status": "DROP", "error": "job_completed data not a dictionary"}
+
     await dapr_client.save_state(
         store_name="statestore",
-        key=f"job-{job_data['id']}",
+        key=f"job-{job_id}",
         value=json.dumps(job_data)
     )
     
@@ -284,20 +300,29 @@ async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def handle_incoming_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages from pub/sub and broadcast to WebSocket clients."""
-    print(f"Coordinator Agent: Received chat event. Type of event.data: {type(event.data)}, event.data: {repr(event.data)}")
-    print(f"Coordinator Agent: event.data_content_type: {repr(event.data_content_type)}")
+    print(f"Coordinator Agent: Received chat event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     chat_data = event.data
-    if isinstance(chat_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
-        print(f"Coordinator Agent: Attempting json.loads on chat_data: {repr(chat_data)}")
+
+    if isinstance(chat_data, str):
+        print(f"Coordinator Agent: event.data for chat is a string. Attempting json.loads on: {repr(chat_data)}")
         try:
             chat_data = json.loads(chat_data)
-            print(f"Coordinator Agent: Successfully parsed chat_data. New type: {type(chat_data)}, value: {repr(chat_data)}")
+            print(f"Coordinator Agent: Successfully parsed string event.data for chat. New type: {type(chat_data)}")
         except json.JSONDecodeError as e:
-            print(f"Coordinator: Failed to decode JSON chat_data: {e}. Data: {event.data}")
-            return {"status": "DROP"} # Or RETRY
+            print(f"Coordinator Agent: Failed to decode JSON from string event.data for chat: {e}. Original data: {repr(event.data)}")
+            return {"status": "DROP", "error": "event.data string for chat is not valid JSON"}
+    elif not isinstance(chat_data, dict):
+        print(f"Coordinator Agent: event.data for chat is neither a string nor a dict. Type: {type(chat_data)}. Value: {repr(chat_data)}")
+        return {"status": "DROP", "error": "event.data for chat has unexpected type"}
     
+    # Ensure chat_data is a dict before trying to use it for broadcast
+    if not isinstance(chat_data, dict):
+        # This case should ideally be caught by the checks above, but as a safeguard:
+        print(f"Coordinator Agent: chat_data is not a dict after parsing attempts. Cannot broadcast. Data: {repr(chat_data)}")
+        return {"status": "DROP", "error": "processed chat_data is not a dictionary"}
+
     print(f"Coordinator received chat message from pub/sub: {chat_data}")
-    await broadcast_chat_message_to_clients(chat_data)
+    await broadcast_chat_message_to_clients(chat_data) # Expects chat_data to be a dict
 
 # Authentication Endpoints
 @app.post("/auth/login")

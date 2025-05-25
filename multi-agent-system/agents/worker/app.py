@@ -128,15 +128,29 @@ dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
 @dapr_app.subscribe(pubsub="pubsub", topic="job-queue")
 async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     """Process incoming jobs"""
+    print(f"Worker Agent: Received job event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     job_data = event.data
-    if isinstance(job_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
+
+    if isinstance(job_data, str):
+        print(f"Worker Agent: event.data for job is a string. Attempting json.loads on: {repr(job_data)}")
         try:
             job_data = json.loads(job_data)
+            print(f"Worker Agent: Successfully parsed string event.data for job. New type: {type(job_data)}")
         except json.JSONDecodeError as e:
-            print(f"Worker: Failed to decode JSON job_data: {e}. Data: {event.data}")
-            return {"status": "DROP"} # Or RETRY
-    
-    print(f"Received job: {job_data['id']}")
+            print(f"Worker Agent: Failed to decode JSON from string event.data for job: {e}. Original data: {repr(event.data)}")
+            return {"status": "DROP", "error": "event.data string for job is not valid JSON"}
+    elif not isinstance(job_data, dict):
+        print(f"Worker Agent: event.data for job is neither a string nor a dict. Type: {type(job_data)}. Value: {repr(job_data)}")
+        return {"status": "DROP", "error": "event.data for job has unexpected type"}
+
+    try:
+        print(f"Received job: {job_data['id']}")
+    except KeyError:
+        print(f"Worker Agent: 'id' key missing in job_data. Data: {repr(job_data)}")
+        return {"status": "DROP", "error": "missing 'id' in job_data"}
+    except TypeError:
+        print(f"Worker Agent: job_data is not a dictionary, cannot access 'id'. Data: {repr(job_data)}")
+        return {"status": "DROP", "error": "job_data not a dictionary"}
     
     # Update job status to processing
     job_data["status"] = "processing"
@@ -169,19 +183,29 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages"""
-    print(f"Worker Agent: Received chat event. Type of event.data: {type(event.data)}, event.data: {repr(event.data)}")
-    print(f"Worker Agent: event.data_content_type: {repr(event.data_content_type)}")
+    print(f"Worker Agent: Received chat event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     message_data = event.data
-    if isinstance(message_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
-        print(f"Worker Agent: Attempting json.loads on chat message_data: {repr(message_data)}")
+
+    if isinstance(message_data, str):
+        print(f"Worker Agent: event.data for chat is a string. Attempting json.loads on: {repr(message_data)}")
         try:
             message_data = json.loads(message_data)
-            print(f"Worker Agent: Successfully parsed chat message_data. New type: {type(message_data)}, value: {repr(message_data)}")
+            print(f"Worker Agent: Successfully parsed string event.data for chat. New type: {type(message_data)}")
         except json.JSONDecodeError as e:
-            print(f"Worker: Failed to decode JSON message_data: {e}. Data: {event.data}")
-            return {"status": "DROP"} # Or RETRY
+            print(f"Worker Agent: Failed to decode JSON from string event.data for chat: {e}. Original data: {repr(event.data)}")
+            return {"status": "DROP", "error": "event.data string for chat is not valid JSON"}
+    elif not isinstance(message_data, dict):
+        print(f"Worker Agent: event.data for chat is neither a string nor a dict. Type: {type(message_data)}. Value: {repr(message_data)}")
+        return {"status": "DROP", "error": "event.data for chat has unexpected type"}
 
-    print(f"Chat message from {message_data['sender_id']}: {message_data['content']}")
+    try:
+        print(f"Chat message from {message_data['sender_id']}: {message_data['content']}")
+    except KeyError as e:
+        print(f"Worker Agent: Key {e} missing in chat message_data. Data: {repr(message_data)}")
+        return {"status": "DROP", "error": f"missing key {e} in chat_data"}
+    except TypeError:
+        print(f"Worker Agent: chat message_data is not a dictionary. Data: {repr(message_data)}")
+        return {"status": "DROP", "error": "chat_data not a dictionary"}
     
     # Process message and potentially respond
     if "help" in message_data["content"].lower():

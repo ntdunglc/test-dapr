@@ -56,29 +56,33 @@ class CustomTopicEvent(BaseModel):
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Store chat messages in state store"""
-    print(f"Chat Agent: Received event. Type of event.data: {type(event.data)}, event.data: {repr(event.data)}")
-    print(f"Chat Agent: event.data_content_type: {repr(event.data_content_type)}")
-
+    print(f"Chat Agent: Received chat event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     message_data = event.data
-    
-    # Log before the conditional processing
-    print(f"Chat Agent: Initial message_data type: {type(message_data)}, value: {repr(message_data)}")
-    print(f"Chat Agent: Condition check: isinstance(message_data, str) is {isinstance(message_data, str)}")
-    print(f"Chat Agent: Condition check: event.data_content_type is {repr(event.data_content_type)}")
-    if event.data_content_type:
-        print(f"Chat Agent: Condition check: 'application/json' in event.data_content_type.lower() is {'application/json' in event.data_content_type.lower()}")
 
-    if isinstance(message_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
-        print(f"Chat Agent: Attempting json.loads on message_data: {repr(message_data)}")
+    if isinstance(message_data, str):
+        # If data is a string, attempt to parse it as JSON.
+        print(f"Chat Agent: event.data is a string. Attempting json.loads on: {repr(message_data)}")
         try:
             message_data = json.loads(message_data)
-            print(f"Chat Agent: Successfully parsed message_data. New type: {type(message_data)}, value: {repr(message_data)}")
+            print(f"Chat Agent: Successfully parsed string event.data. New type: {type(message_data)}")
         except json.JSONDecodeError as e:
-            print(f"Chat: Failed to decode JSON message_data: {e}. Data: {event.data}")
-            return {"status": "DROP"} # Or RETRY
+            print(f"Chat Agent: Failed to decode JSON from string event.data: {e}. Original data: {repr(event.data)}")
+            return {"status": "DROP", "error": "event.data string is not valid JSON"}
+    elif not isinstance(message_data, dict):
+        # If it's not a string and not a dict, it's an unexpected type.
+        print(f"Chat Agent: event.data is neither a string nor a dict. Type: {type(message_data)}. Value: {repr(message_data)}")
+        return {"status": "DROP", "error": "event.data has unexpected type"}
     
+    # At this point, message_data should be a dict.
     # Store message with timestamp key
-    timestamp_key = f"chat-{message_data['timestamp']}"
+    try:
+        timestamp_key = f"chat-{message_data['timestamp']}"
+    except KeyError:
+        print(f"Chat Agent: 'timestamp' key missing in message_data. Data: {repr(message_data)}")
+        return {"status": "DROP", "error": "missing 'timestamp' in message_data"}
+    except TypeError: # If message_data is not a dict (e.g. list, or other non-subscriptable type)
+        print(f"Chat Agent: message_data is not a dictionary, cannot access 'timestamp'. Data: {repr(message_data)}")
+        return {"status": "DROP", "error": "message_data not a dictionary"}
     await dapr_client.save_state(
         store_name="statestore",
         key=timestamp_key,
