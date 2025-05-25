@@ -42,6 +42,7 @@ class Agent(BaseModel):
     type: str
     status: str = "idle"
     last_heartbeat: Optional[datetime] = None
+    supported_commands: List[str] = []
 
 class Job(BaseModel):
     id: str

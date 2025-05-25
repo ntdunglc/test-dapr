@@ -335,12 +335,18 @@ function updateAgentDisplay(agent) {
         agentsList.appendChild(agentElement);
     }
     
+    let commandsHtml = '';
+    if (agent.supported_commands && agent.supported_commands.length > 0) {
+        commandsHtml = `<div>Supports: ${agent.supported_commands.join(', ')}</div>`;
+    }
+
     agentElement.innerHTML = `
         <div>
             <strong>${agent.name}</strong>
             <span class="status ${agent.status}">${agent.status}</span>
         </div>
         <div>Type: ${agent.type}</div>
+        ${commandsHtml}
     `;
 }
 

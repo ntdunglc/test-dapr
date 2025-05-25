@@ -21,6 +21,7 @@ dapr_client: DaprClient = None # type: ignore
 
 AGENT_ID = "worker-1" # Internal ID, can remain the same
 AGENT_NAME = "LLM Worker" # New display name
+SUPPORTED_COMMANDS = ["@echo", "@llm"] # Commands this worker supports
 
 
 # Custom TopicEvent model to make 'route' field optional
@@ -82,7 +83,8 @@ async def _register_with_coordinator(): # Renamed and made internal
         "id": AGENT_ID,
         "name": AGENT_NAME, # Will be "LLM Worker"
         "type": "llm",     # New type for UI display
-        "status": "active"
+        "status": "active",
+        "supported_commands": SUPPORTED_COMMANDS
     }
     
     # Use Dapr service invocation to register
