@@ -3,6 +3,7 @@ const clientId = Math.random().toString(36).substring(7); // This is for WebSock
 let currentSessionId = null;
 let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
 let persistentUserId = null;
+let registered_agents_cache = {}; // Initialize agent cache
 
 function getOrSetUserId() {
     let userId = localStorage.getItem('persistentUserId');
@@ -388,6 +389,9 @@ function updateAgentDisplay(agent) {
         agentElement.className = 'agent-item';
         agentsList.appendChild(agentElement);
     }
+
+    // Update the cache
+    registered_agents_cache[agent.id] = agent;
     
     let commandsHtml = '';
     if (agent.supported_commands && agent.supported_commands.length > 0) {
