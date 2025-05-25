@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi import FastAPI, WebSocket, HTTPException, Depends, Form, status
 from dapr.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
 from pydantic import BaseModel
@@ -8,9 +8,17 @@ import json
 import asyncio
 from datetime import datetime
 
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt, JWTError
+
 app = FastAPI()
 dapr_app = DaprApp(app)
 dapr_client = DaprClient()
+
+# JWT Configuration
+SECRET_KEY = "your-secret-key-please-change-in-production"
+ALGORITHM = "HS256"
+security = HTTPBearer()
 
 # Models
 class Agent(BaseModel):
@@ -190,6 +198,45 @@ async def handle_job_completed(event):
     
     # Broadcast update
     await broadcast_job_update(job_data)
+
+# Authentication Endpoints
+@app.post("/auth/login")
+async def login(username: str = Form(...), password: str = Form(...)):
+    """Authenticate user and return a JWT token."""
+    # In a real application, you would verify username and password against a database.
+    # This is a dummy verification for example purposes.
+    if not (username == "testuser" and password == "testpass"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    to_encode = {"sub": username}
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return {"access_token": encoded_jwt, "token_type": "bearer"}
+
+@app.get("/protected")
+async def protected_route(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """A protected route that requires JWT authentication."""
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials - no username in token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        # Token is valid, username is extracted.
+        return {"message": f"Hello {username}! This is a protected route.", "token_payload": payload}
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials - token error",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 if __name__ == "__main__":
     import uvicorn
