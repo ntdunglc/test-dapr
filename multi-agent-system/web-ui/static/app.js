@@ -240,6 +240,8 @@ async function focusInteraction(interactionId, interactionType) {
     document.getElementById('chat-messages').innerHTML = ''; // Clear previous messages
     document.getElementById('chat-title').textContent = `${interactionType === 'job' ? 'Job' : 'Chat'}: ${interaction.name}`;
 
+    console.log(`Focusing interaction: Type: ${interactionType}, Full ID: ${interactionId}`); // Log the full ID
+
     // Highlight active interaction in the list
     const listItems = document.querySelectorAll('#interactions-list li');
     listItems.forEach(item => {
