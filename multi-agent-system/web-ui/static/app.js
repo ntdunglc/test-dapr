@@ -1,6 +1,7 @@
 let ws = null;
 const clientId = Math.random().toString(36).substring(7); // This is for WebSocket client_id, distinct from persistent userId
-let currentSessionId = null;
+// let currentSessionId = null; // Replaced by currentChatTarget
+let currentChatTarget = { type: null, id: null }; // type: 'session' or 'job', id: session_id or job_id
 let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
 let persistentUserId = null;
 let registered_agents_cache = {}; // Initialize agent cache
@@ -20,7 +21,7 @@ function initWebSocket() {
     
     ws.onopen = () => {
         console.log('Connected to coordinator');
-        initializeApp(); // Changed from loadInitialData to a more comprehensive init
+        initializeApp();
     };
     
     ws.onmessage = (event) => {
@@ -41,13 +42,11 @@ function handleMessage(message) {
             updateJobDisplay(message.data);
             break;
         case 'chat_message':
-            // Only display if it belongs to the current session
-            if (message.data && message.data.session_id === currentSessionId) {
+            // Display if it belongs to the current chat target (session or job)
+            if (message.data && message.data.session_id === currentChatTarget.id) {
                 displayChatMessage(message.data);
             } else {
-                // Optionally, notify if a message for another session arrives
-                // console.log(`Chat message for another session (${message.data.session_id}) received.`);
-                // Or update a badge on the session list item
+                // console.log(`Chat message for another context (${message.data.session_id}, current: ${currentChatTarget.id}) received.`);
             }
             break;
         case 'agent_update':
@@ -88,21 +87,42 @@ async function initializeApp() {
     await loadSessionsFromServer(); // Load sessions from server first
 
     // If no sessions after server load, create one. Otherwise, select one.
-    if (Object.keys(knownSessions).length === 0) {
-        await createNewSession(); 
-    } else {
-        const lastActiveId = localStorage.getItem('currentSessionId');
-        if (lastActiveId && knownSessions[lastActiveId]) {
-            await switchSession(lastActiveId);
+    // Prioritize last active target (could be session or job)
+    const lastActiveTarget = JSON.parse(localStorage.getItem('currentChatTarget'));
+
+    if (lastActiveTarget && lastActiveTarget.id) {
+        if (lastActiveTarget.type === 'session' && knownSessions[lastActiveTarget.id]) {
+            await switchSession(lastActiveTarget.id);
+        } else if (lastActiveTarget.type === 'job') {
+            // We need to ensure the job exists in the jobs list if we want to focus it.
+            // For now, let's assume jobs are loaded/updated via WebSocket.
+            // If the job is known (e.g. from a previous job_update), focus it.
+            // This part might need refinement if jobs aren't persistently loaded like sessions.
+            const jobElement = document.getElementById(`job-${lastActiveTarget.id}`);
+            if (jobElement) { // A simple check if the job is rendered
+                 await focusJob(lastActiveTarget.id);
+            } else {
+                await selectDefaultSessionOrJob();
+            }
         } else {
-            const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            if (sortedSessions.length > 0) {
-                await switchSession(sortedSessions[0].id);
-            } 
-            // If still no session (e.g. localStorage had an ID for a now-deleted session), createNewSession would have been called.
+            await selectDefaultSessionOrJob();
         }
+    } else {
+        await selectDefaultSessionOrJob();
     }
 }
+
+async function selectDefaultSessionOrJob() {
+    if (Object.keys(knownSessions).length > 0) {
+        const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        await switchSession(sortedSessions[0].id);
+    } else {
+        // If no sessions, and potentially no jobs to default to, create a new session.
+        await createNewSession();
+    }
+    // If there are jobs but no sessions, one could implement logic to focus a default job.
+}
+
 
 async function loadSessionsFromServer() {
     console.log("Loading sessions from server...");
@@ -138,21 +158,18 @@ async function loadSessionsFromServer() {
 }
 
 
-function saveSessionsToLocalStorage() {
-    localStorage.setItem('knownSessions', JSON.stringify(knownSessions));
-    if (currentSessionId) {
-        localStorage.setItem('currentSessionId', currentSessionId);
-    }
+function saveCurrentChatTargetToLocalStorage() {
+    localStorage.setItem('currentChatTarget', JSON.stringify(currentChatTarget));
 }
 
-function loadSessionsFromLocalStorage() { // This is now more of a fallback or for currentSessionId
-    const storedSessions = localStorage.getItem('knownSessions');
-    if (storedSessions) {
-        // This might be overwritten by server load, which is intended.
-        // knownSessions = JSON.parse(storedSessions); 
-    }
-    // currentSessionId is still useful to remember the last active tab.
-}
+// function loadSessionsFromLocalStorage() { // This is now more of a fallback or for currentSessionId
+//     const storedSessions = localStorage.getItem('knownSessions');
+//     if (storedSessions) {
+//         // This might be overwritten by server load, which is intended.
+//         // knownSessions = JSON.parse(storedSessions); 
+//     }
+//     // currentSessionId is still useful to remember the last active tab.
+// }
 
 async function createNewSession() {
     try {
@@ -172,9 +189,9 @@ async function createNewSession() {
                 timestamp: session.created_at,
                 user_id: session.user_id // Store user_id with session if needed for display
             };
-            saveSessionsToLocalStorage();
+            // saveSessionsToLocalStorage(); // currentChatTarget will be saved by switchSession
             renderSessionList();
-            await switchSession(session.id);
+            await switchSession(session.id); // This will set currentChatTarget and save it
             return session.id;
         } else {
             console.error("Failed to create new session:", response.status, await response.text());
@@ -199,48 +216,69 @@ async function switchSession(sessionId) {
         return;
     }
 
-    currentSessionId = sessionId;
+    currentChatTarget = { type: 'session', id: sessionId };
     document.getElementById('chat-messages').innerHTML = ''; // Clear previous messages
-    document.getElementById('chat-title').textContent = `Agent Chat (${knownSessions[sessionId].name})`;
+    document.getElementById('chat-title').textContent = `Chat: ${knownSessions[sessionId].name}`;
 
-
-    // Highlight active session in the list
-    const sessionListItems = document.querySelectorAll('#sessions-list li');
-    sessionListItems.forEach(item => {
-        item.classList.remove('active-session');
-        if (item.dataset.sessionId === sessionId) {
-            item.classList.add('active-session');
-        }
-    });
+    // Highlight active session and deactivate any active job
+    updateActiveSessionHighlight(sessionId);
+    updateActiveJobHighlight(null);
     
-    saveSessionsToLocalStorage(); // Save current session as active
-    await loadChatHistory(sessionId);
+    saveCurrentChatTargetToLocalStorage();
+    await loadChatHistory(sessionId, 'session');
 }
 
-async function loadChatHistory(sessionId) {
-    if (!sessionId) {
-        console.log("No session ID provided to loadChatHistory.");
-        document.getElementById('chat-messages').innerHTML = '<div>Select or create a chat session.</div>';
+async function focusJob(jobId) {
+    const jobElement = document.getElementById(`job-${jobId}`);
+    if (!jobElement) {
+        console.error(`Job element for ${jobId} not found.`);
+        // Potentially switch to a default session if current job focus is invalid
+        await selectDefaultSessionOrJob();
         return;
     }
+
+    currentChatTarget = { type: 'job', id: jobId };
+    document.getElementById('chat-messages').innerHTML = ''; // Clear previous messages
+    // Extract job description or use ID for title
+    const jobDescElement = jobElement.querySelector('.job-description');
+    const jobTitleName = jobDescElement ? jobDescElement.textContent.substring(0,30) + "..." : jobId.substring(0,8);
+    document.getElementById('chat-title').textContent = `Job: ${jobTitleName}`;
+
+    // Highlight active job and deactivate any active session
+    updateActiveJobHighlight(jobId);
+    updateActiveSessionHighlight(null);
+
+    saveCurrentChatTargetToLocalStorage();
+    await loadChatHistory(jobId, 'job'); // Use 'job' type to potentially fetch from a different conceptual endpoint if needed, though session_id is the key
+}
+
+
+async function loadChatHistory(targetId, targetType) {
+    if (!targetId) {
+        console.log("No target ID provided to loadChatHistory.");
+        document.getElementById('chat-messages').innerHTML = '<div>Select a session or job to view chat.</div>';
+        return;
+    }
+    // The session_id for chat history is always the targetId (be it a session_id or a job_id)
+    const historySessionId = targetId; 
     try {
-        const chatResponse = await fetch(`/api/chat/history/${sessionId}`);
+        const chatResponse = await fetch(`/api/chat/history/${historySessionId}`);
         if (chatResponse.ok) {
             const chatHistory = await chatResponse.json();
             chatHistory.messages.forEach(msg => displayChatMessage(msg));
         } else {
-            console.error(`Failed to load chat history for session ${sessionId}:`, chatResponse.status, await chatResponse.text());
-            document.getElementById('chat-messages').innerHTML = `<div>Error loading history for session ${sessionId}.</div>`;
+            console.error(`Failed to load chat history for ${targetType} ${targetId}:`, chatResponse.status, await chatResponse.text());
+            document.getElementById('chat-messages').innerHTML = `<div>Error loading history for ${targetType} ${targetId}.</div>`;
         }
     } catch (error) {
-        console.error(`Error fetching chat history for session ${sessionId}:`, error);
-        document.getElementById('chat-messages').innerHTML = `<div>Could not fetch history for session ${sessionId}.</div>`;
+        console.error(`Error fetching chat history for ${targetType} ${targetId}:`, error);
+        document.getElementById('chat-messages').innerHTML = `<div>Could not fetch history for ${targetType} ${targetId}.</div>`;
     }
 }
 
 function renderSessionList() {
     const sessionsListElement = document.getElementById('sessions-list');
-    sessionsListElement.innerHTML = ''; // Clear existing list
+    sessionsListElement.innerHTML = '';
 
     const sortedSessions = Object.values(knownSessions).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
@@ -248,11 +286,31 @@ function renderSessionList() {
         const listItem = document.createElement('li');
         listItem.textContent = session.name;
         listItem.dataset.sessionId = session.id;
-        if (session.id === currentSessionId) {
+        if (currentChatTarget.type === 'session' && session.id === currentChatTarget.id) {
             listItem.classList.add('active-session');
         }
         listItem.onclick = () => switchSession(session.id);
         sessionsListElement.appendChild(listItem);
+    });
+}
+
+function updateActiveSessionHighlight(activeSessionId) {
+    const sessionListItems = document.querySelectorAll('#sessions-list li');
+    sessionListItems.forEach(item => {
+        item.classList.remove('active-session');
+        if (item.dataset.sessionId === activeSessionId) {
+            item.classList.add('active-session');
+        }
+    });
+}
+
+function updateActiveJobHighlight(activeJobId) {
+    const jobListItems = document.querySelectorAll('#jobs-list .job-item'); // Assuming jobs are list items or divs with .job-item
+    jobListItems.forEach(item => {
+        item.classList.remove('active-job');
+        if (item.id === `job-${activeJobId}`) { // Assuming job items have id `job-${job.id}`
+            item.classList.add('active-job');
+        }
     });
 }
 
@@ -338,44 +396,62 @@ async function handleModalJobSubmit() {
 // Send chat message
 function sendMessage() {
     const input = document.getElementById('chat-input');
-    const message = input.value.trim();
+    const messageContent = input.value.trim();
     
-    if (!currentSessionId) {
-        alert("Please select or create a chat session first.");
+    if (!currentChatTarget.id) {
+        alert("Please select a session or job to chat with.");
         return;
     }
 
-    if (message && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'chat',
-            session_id: currentSessionId, // Include current session ID
-            content: message
-        }));
+    if (messageContent && ws.readyState === WebSocket.OPEN) {
+        const messagePayload = {
+            type: 'chat', // All messages to coordinator are 'chat' type for now
+                          // Coordinator will then publish to 'chat-messages' topic
+            session_id: currentChatTarget.id, // This ID is the key for chat history (session_id or job_id)
+            content: messageContent
+        };
+
+        // If the target is a job, we might want to add specific metadata,
+        // but for now, using job_id as session_id is the main mechanism.
+        // if (currentChatTarget.type === 'job') {
+        //    messagePayload.job_id = currentChatTarget.id; // Could be redundant if session_id is job_id
+        // }
+
+        ws.send(JSON.stringify(messagePayload));
         input.value = '';
     }
 }
 
 // Update displays
 function updateJobDisplay(job) {
-    const jobsList = document.getElementById('jobs-list');
+    const jobsList = document.getElementById('jobs-list'); // Should be a <ul>
     let jobElement = document.getElementById(`job-${job.id}`);
     
     if (!jobElement) {
-        jobElement = document.createElement('div');
+        jobElement = document.createElement('li'); // Changed to li
         jobElement.id = `job-${job.id}`;
         jobElement.className = 'job-item';
-        jobsList.prepend(jobElement);
+        jobsList.prepend(jobElement); // Add to the top of the list
+        jobElement.onclick = () => focusJob(job.id); // Make job item clickable
     }
     
+    // Highlight if it's the current chat target
+    if (currentChatTarget.type === 'job' && currentChatTarget.id === job.id) {
+        jobElement.classList.add('active-job');
+    } else {
+        jobElement.classList.remove('active-job');
+    }
+    
+    const description = job.payload && job.payload.description ? job.payload.description : 'No description';
     jobElement.innerHTML = `
         <div>
             <strong>Job ${job.id.substring(0, 8)}</strong>
             <span class="status ${job.status}">${job.status}</span>
         </div>
+        <div class="job-description">Desc: ${description.substring(0,50)}${description.length > 50 ? '...' : ''}</div>
         <div>Type: ${job.task_type}</div>
         ${job.agent_id ? `<div>Agent: ${job.agent_id.substring(0,8)}</div>` : '<div>Agent: Any</div>'}
-        ${job.payload && job.payload.description ? `<div>Desc: ${job.payload.description.substring(0,50)}${job.payload.description.length > 50 ? '...' : ''}</div>` : ''}
-        ${job.result ? `<div>Result: ${JSON.stringify(job.result)}</div>` : ''}
+        ${job.result ? `<div>Result: ${JSON.stringify(job.result).substring(0,50)}...</div>` : ''}
     `;
 }
 

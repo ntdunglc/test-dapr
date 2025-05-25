@@ -253,32 +253,29 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     
     # Process message and potentially respond
     original_content = message_data.get("content", "")
+    # The incoming_session_id could be a regular session_id or a job_id if the chat is job-focused
+    incoming_session_id = message_data.get("session_id") 
     response_payload = None
 
+    if not incoming_session_id:
+        print(f"Worker ({AGENT_ID}): Received chat message without session_id. Cannot process or reply specifically. Data: {message_data}")
+        return {"status": "DROP", "error": "missing session_id in chat message"}
+
     if "@echo" in original_content:
-        incoming_session_id = message_data.get("session_id")
-        if not incoming_session_id:
-            print(f"Worker ({AGENT_ID}): Received @echo request without session_id. Cannot reply specifically.")
-            return {"status": "DROP", "error": "missing session_id in @echo request"}
         content_to_echo = original_content.replace("@echo", "").strip()
         response_payload = {
-            "sender_id": AGENT_ID,
-            "content": f"Echo: {content_to_echo}",
+            "sender_id": AGENT_ID, # This worker is the sender
+            "content": f"Echo from {AGENT_NAME}: {content_to_echo}",
             "timestamp": datetime.now().isoformat(),
-            "session_id": incoming_session_id
+            "session_id": incoming_session_id # Echo back to the same session/job context
         }
-        print(f"Worker ({AGENT_ID}): Sending echo reply: {response_payload}")
+        print(f"Worker ({AGENT_ID}): Sending echo reply to session/job {incoming_session_id}: {response_payload['content']}")
 
     elif "@llm" in original_content:
         # Prevent processing its own messages if they contain the command
         if message_data.get("sender_id") == AGENT_ID:
-            print(f"Worker ({AGENT_ID}): Skipping self-generated message containing @llm: {original_content}")
+            print(f"Worker ({AGENT_ID}): Skipping self-generated message containing @llm for session/job {incoming_session_id}: {original_content}")
             return {"status": "DROP", "error": "Skipping self-generated @llm message"}
-
-        incoming_session_id = message_data.get("session_id")
-        if not incoming_session_id:
-            print(f"Worker ({AGENT_ID}): Received @llm request without session_id. Cannot reply specifically.")
-            return {"status": "DROP", "error": "missing session_id in @llm request"}
         
         content_for_llm = original_content.replace("@llm", "").strip()
         llm_reply_text = ""

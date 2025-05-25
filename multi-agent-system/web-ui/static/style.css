@@ -145,6 +145,35 @@ button:hover {
     border-bottom: none;
 }
 
+#jobs-list { /* Style for the jobs list container */
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+    max-height: 300px; /* Example max height, adjust as needed */
+    overflow-y: auto;
+}
+
+#jobs-list .job-item { /* Style for individual job items if they are li or have this class */
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+}
+
+#jobs-list .job-item:hover {
+    background-color: #f0f0f0;
+}
+
+#jobs-list .job-item.active-job {
+    background-color: #17a2b8; /* A different color to distinguish from active session */
+    color: white;
+    font-weight: bold;
+}
+
+#jobs-list .job-item.active-job:hover {
+    background-color: #138496;
+}
+
+
 .status {
     display: inline-block;
     padding: 2px 8px;
