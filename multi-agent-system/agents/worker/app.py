@@ -44,7 +44,7 @@ class CustomTopicEvent(BaseModel):
 
 
 # Define a simple ADK Agent
-class SimpleAdkChatAgent(Agent[StandardInput, StandardOutput]):
+class MyCustomAdkEchoAgent(Agent[StandardInput, StandardOutput]): # Renamed class
     def infer(
         self, request: InferenceRequest[StandardInput], context: InferenceContext
     ) -> InferenceResponse[StandardOutput]:
@@ -53,9 +53,8 @@ class SimpleAdkChatAgent(Agent[StandardInput, StandardOutput]):
         output_text = f"ADK Echo: {input_text[::-1]}"
         return InferenceResponse(data=StandardOutput(text=output_text))
 
-# Instantiate the ADK agent. For this example, we can create it on demand or keep a global instance.
-# Creating on demand is simpler for now. If it had significant setup cost, a global instance might be better.
-# adk_chat_agent = SimpleAdkChatAgent()
+# Instantiate the ADK agent as root_agent, following ADK Quickstart pattern
+root_agent = MyCustomAdkEchoAgent()
 
 
 async def _register_with_coordinator(): # Renamed and made internal
@@ -254,11 +253,11 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         content_for_adk = original_content.replace("@adk", "").strip()
         
         try:
-            adk_agent_instance = SimpleAdkChatAgent()
+            # Use the global root_agent instance
             adk_request = InferenceRequest(data=StandardInput(text=content_for_adk))
             # ADK's infer method is synchronous, run it in a thread pool
             adk_response = await asyncio.to_thread(
-                adk_agent_instance.infer, 
+                root_agent.infer, # Use root_agent
                 adk_request, 
                 InferenceContext() # Default context
             )
