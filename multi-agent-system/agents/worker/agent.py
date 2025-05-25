@@ -11,7 +11,10 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from google.adk.agents import LlmAgent
-# No longer need these imports since we're using the invoke method instead of process
+from google.adk.runners import Runner
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from google.adk.artifacts import InMemoryArtifactService
+from google.genai import types as genai_types # Renamed to avoid conflict
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -44,57 +47,32 @@ class CustomTopicEvent(BaseModel):
     Type: Optional[str] = Field(default=None, alias="Type")
 
 
-# Define an ADK LlmAgent based on the provided documentation
+# Define an ADK LlmAgent
 class AdkLlmGreeterAgent(LlmAgent):
-    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash"): # Updated model name
+    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash"):
         super().__init__(
             name=name,
             description="An ADK agent that greets or answers questions using an LLM.",
             instruction="You are a friendly and helpful agent. If given a name, greet the person warmly. If asked a question, provide a concise and accurate answer. If the question is complex, you can say you need more time or tools.",
             model=model
         )
-        # For programmatic invocation, ensure the agent is "ready"
-        # In many ADK setups, readiness is handled by the Runner.
-        # For direct use, the LlmAgent initializes its LLM client if an API key is available.
 
-async def run_agent_programmatically(agent_instance: LlmAgent, user_input_text: str):
-    """
-    Invokes the ADK agent programmatically with a given text input.
+# Global ADK Setup
+# This agent instance can be named `root_agent` if ADK tooling expects that name.
+root_agent = AdkLlmGreeterAgent()
+session_service = InMemorySessionService()
+artifact_service = InMemoryArtifactService()
 
-    Args:
-        agent_instance: The instantiated ADK agent.
-        user_input_text: The text input for the agent.
+ADK_APP_NAME = "worker_adk_application" # Used for ADK Runner and Session Service
+adk_runner = Runner(
+    app_name=ADK_APP_NAME,
+    agent=root_agent,
+    artifact_service=artifact_service,
+    session_service=session_service
+)
 
-    Returns:
-        The text response from the agent, or None if an error occurs.
-    """
-    print(f"\nInvoking agent '{agent_instance.name}' with input: '{user_input_text}'")
-    try:
-        # The `invoke` method is used for direct programmatic calls to an agent.
-        # It typically expects a dictionary as input. For an LlmAgent,
-        # this input is often used to fill placeholders in a prompt or directly
-        # passed to the LLM along with the agent's standing 'instruction'.
-        # A common input key for general text is "text" or "input".
-        response_payload = await agent_instance.invoke({"text": user_input_text})
-
-        # The response_payload is also a dictionary.
-        # For an LlmAgent, the LLM's generated text is usually under the "text" key.
-        if isinstance(response_payload, dict) and "text" in response_payload:
-            return response_payload["text"]
-        else:
-            print(f"Unexpected response structure: {response_payload}")
-            return str(response_payload)  # Fallback
-
-    except Exception as e:
-        print(f"Error invoking agent '{agent_instance.name}': {e}")
-        # Common issues:
-        # - Missing GOOGLE_API_KEY or invalid key.
-        # - Network issues.
-        # - Issues with the selected LLM model.
-        return None
-
-# Note: We are not creating a global root_agent instance here for AdkLlmGreeterAgent.
-# It will be instantiated on demand within handle_chat_message to allow runtime API key check.
+# Map incoming chat session IDs to ADK session IDs
+adk_sessions_map: dict[str, str] = {}
 
 
 async def _register_with_coordinator(): # Renamed and made internal
@@ -291,26 +269,54 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
             return {"status": "DROP", "error": "missing session_id in @adk request"}
         
         content_for_adk = original_content.replace("@adk", "").strip()
-        
+        adk_reply_text = ""
+        current_adk_session_id = None
+
         try:
             api_key = os.getenv("GOOGLE_API_KEY")
             if not api_key:
                 print(f"Worker ({AGENT_ID}): GOOGLE_API_KEY not set. ADK LLM agent cannot be invoked.")
                 adk_reply_text = "ADK LLM Agent requires GOOGLE_API_KEY to be set."
             else:
-                # Create instance here to ensure it picks up the env var if set at runtime
-                adk_llm_agent_instance = AdkLlmGreeterAgent()
-                print(f"Worker ({AGENT_ID}): Invoking ADK LLM agent '{adk_llm_agent_instance.name}' with input: '{content_for_adk}'")
+                adk_user_id = "adk_fixed_user" # Fixed user for ADK sessions
 
-                # Use the improved run_agent_programmatically function
-                adk_reply_text = await run_agent_programmatically(adk_llm_agent_instance, content_for_adk)
-                
-                if not adk_reply_text:
-                    print(f"Worker ({AGENT_ID}): No response from ADK agent")
-                    adk_reply_text = "ADK LLM agent did not return a response. Please check logs for details."
-            
+                if incoming_session_id not in adk_sessions_map:
+                    try:
+                        new_adk_session_obj = await session_service.create_session(
+                            app_name=ADK_APP_NAME,
+                            user_id=adk_user_id
+                        )
+                        current_adk_session_id = new_adk_session_obj.id
+                        adk_sessions_map[incoming_session_id] = current_adk_session_id
+                        print(f"Worker ({AGENT_ID}): Created new ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
+                    except Exception as e:
+                        print(f"Worker ({AGENT_ID}): Error creating ADK session: {e}")
+                        adk_reply_text = f"Error initializing ADK session: {type(e).__name__}"
+                else:
+                    current_adk_session_id = adk_sessions_map[incoming_session_id]
+                    print(f"Worker ({AGENT_ID}): Using existing ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
+
+                if current_adk_session_id and not adk_reply_text: # Proceed if session ID is set and no prior error
+                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_adk}'")
+                    agent_reply_parts = []
+                    async for event in adk_runner.run_async(
+                        user_id=adk_user_id,
+                        session_id=current_adk_session_id,
+                        new_message=genai_types.Content(role='user', parts=[genai_types.Part(text=content_for_adk)])
+                    ):
+                        if event.author != 'user' and event.content and event.content.parts:
+                            for part in event.content.parts:
+                                if part.text:
+                                    agent_reply_parts.append(part.text)
+                    
+                    adk_reply_text = "".join(agent_reply_parts)
+                    if not adk_reply_text:
+                        adk_reply_text = "ADK agent did not return a text response."
+                elif not adk_reply_text: # If current_adk_session_id was not set and no error message yet
+                    adk_reply_text = "Failed to establish ADK session."
+
             response_payload = {
-                "sender_id": AGENT_ID, 
+                "sender_id": AGENT_ID,
                 "content": f"{adk_reply_text} (session: {incoming_session_id[:6]})",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
