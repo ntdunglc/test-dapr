@@ -114,6 +114,20 @@ Follow these steps from the root directory of the `multi-agent-system` project.
 *   **Port Conflicts:**
     *   If any of the default ports (8000, 8001, 8002 for apps; 8080 for UI; Dapr default ports) are in use, you may need to adjust them in `dapr.yaml` for the apps, `web-ui/server.py` for the UI, or Dapr configurations.
 
+## Utility Scripts
+
+### Clearing All Chat Sessions
+
+A script is provided to clear all chat session data (session metadata and conversation histories) from the Dapr state store (Redis).
+
+To run this script:
+1.  Ensure your Dapr environment is running (e.g., `dapr init` has been done and Redis is accessible).
+2.  Execute the following command from the `multi-agent-system` root directory:
+    ```bash
+    dapr run --app-id clear-sessions-util -- python scripts/clear_sessions.py
+    ```
+    This command runs the `clear_sessions.py` script within a Dapr context, allowing it to connect to the configured state store.
+
 ## Advanced Features
 
 Refer to `dapr_test/claude_plan.md` for information on:
