@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Agent System Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Multi-Agent System Dashboard</h1>
+        
+        <div class="grid">
+            <!-- Agent Status -->
+            <div class="panel">
+                <h2>Agents</h2>
+                <div id="agents-list"></div>
+            </div>
+            
+            <!-- Job Queue -->
+            <div class="panel">
+                <h2>Jobs</h2>
+                <button onclick="submitJob()">Submit New Job</button>
+                <div id="jobs-list"></div>
+            </div>
+            
+            <!-- Chat Interface -->
+            <div class="panel full-width">
+                <h2>Agent Chat</h2>
+                <div id="chat-messages"></div>
+                <div class="chat-input">
+                    <input type="text" id="chat-input" placeholder="Type a message...">
+                    <button onclick="sendMessage()">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

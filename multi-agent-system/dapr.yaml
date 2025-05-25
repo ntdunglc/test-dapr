@@ -1,0 +1,18 @@
+version: 1
+common:
+  resourcesPath: ./components/
+apps:
+  - appID: coordinator
+    appDirPath: ./agents/coordinator/
+    appPort: 8000
+    command: ["python", "app.py"]
+    
+  - appID: worker
+    appDirPath: ./agents/worker/
+    appPort: 8001
+    command: ["python", "app.py"]
+    
+  - appID: chat
+    appDirPath: ./agents/chat/
+    appPort: 8002
+    command: ["python", "app.py"]
