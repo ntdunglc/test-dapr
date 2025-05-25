@@ -72,9 +72,20 @@ async function loadInitialData() {
     }
     
     // Load recent jobs
-    // const jobsResponse = await fetch('/api/jobs/recent'); // Endpoint not yet implemented
-    // const jobs = await jobsResponse.json();
-    // jobs.forEach(job => updateJobDisplay(job));
+    try {
+        const jobsResponse = await fetch('/api/jobs'); // Path will be proxied
+        if (jobsResponse.ok) {
+            const jobs = await jobsResponse.json(); // Assuming server returns newest first
+            // Reverse order for processing because updateJobDisplay prepends,
+            // so processing oldest first will result in newest at the top.
+            jobs.reverse().forEach(job => updateJobDisplay(job));
+            console.log(`Loaded ${jobs.length} existing jobs.`);
+        } else {
+            console.error("Failed to load existing jobs:", jobsResponse.status, await jobsResponse.text());
+        }
+    } catch (error) {
+        console.error("Error fetching existing jobs:", error);
+    }
     
     // Chat history will be loaded by switchSession or createNewSession
 }

@@ -242,8 +242,51 @@ async def submit_job(
     
     # Notify WebSocket clients
     await broadcast_job_update(job.model_dump(mode='json'))
+
+    # Add job ID to the global list of jobs
+    try:
+        job_ids_state = await dapr_client.get_state(store_name="statestore", key=ALL_JOBS_LIST_KEY)
+        job_ids = json.loads(job_ids_state.data) if job_ids_state.data else []
+    except Exception as e:
+        print(f"Coordinator: Error fetching job ID list: {e}. Initializing new list.")
+        job_ids = []
+    
+    if job.id not in job_ids:
+        job_ids.append(job.id)
+        await dapr_client.save_state(store_name="statestore", key=ALL_JOBS_LIST_KEY, value=json.dumps(job_ids))
+        print(f"Coordinator: Added job {job.id} to global list. Total jobs in list: {len(job_ids)}")
     
     return {"job_id": job.id}
+
+@app.get("/api/jobs", response_model=List[Job])
+async def get_jobs():
+    """List all jobs known to the coordinator."""
+    jobs_list = []
+    try:
+        job_ids_state = await dapr_client.get_state(store_name="statestore", key=ALL_JOBS_LIST_KEY)
+        job_ids = json.loads(job_ids_state.data) if job_ids_state.data else []
+        
+        print(f"Coordinator: Fetched job ID list for /api/jobs. Found {len(job_ids)} IDs.")
+
+        for job_id in job_ids:
+            job_state = await dapr_client.get_state(store_name="statestore", key=f"job-{job_id}")
+            if job_state.data:
+                try:
+                    job_data = json.loads(job_state.data)
+                    jobs_list.append(Job(**job_data))
+                except Exception as e:
+                    print(f"Coordinator: Error parsing job data for ID {job_id}: {e}")
+            else:
+                print(f"Coordinator: No job data found for ID {job_id} listed in global list.")
+                # Optionally, clean up this ID from ALL_JOBS_LIST_KEY if it's stale
+
+    except Exception as e:
+        print(f"Coordinator: Error fetching or processing job list for /api/jobs: {e}")
+    
+    # Sort jobs by creation date, newest first
+    jobs_list.sort(key=lambda j: j.created_at, reverse=True)
+    print(f"Coordinator: Returning {len(jobs_list)} jobs for /api/jobs.")
+    return jobs_list
 
 async def broadcast_agent_update(agent_data: dict):
     """Broadcast agent updates to all connected clients"""
