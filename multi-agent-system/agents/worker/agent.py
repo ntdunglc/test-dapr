@@ -96,12 +96,65 @@ async def execute_job(job_data: dict) -> dict:
     
     elif task_type == "user_task":
         description = payload.get("description", "No description provided.")
-        print(f"Worker ({AGENT_ID}): Processing user_task. Description: '{description}'")
-        await asyncio.sleep(2) # Simulate work
+        print(f"Worker ({AGENT_ID}): Processing user_task via LLM. Description: '{description}'")
+        
+        llm_response_text = "LLM processing failed or was not invoked." # Default
+        job_session_id = job_data.get("id", "unknown_job_id") # Use job_id as session_id for DaprAgent memory
+
+        try:
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. LLM cannot be invoked for job {job_session_id}.")
+                llm_response_text = "LLM Agent requires OPENAI_API_KEY to be set."
+            else:
+                if job_session_id not in dapr_agent_instances:
+                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for job-session {job_session_id}")
+                    session_memory = ConversationDaprStateMemory(
+                        store_name="statestore", 
+                        session_id=job_session_id, # Tie memory to job_id
+                        dapr_client=dapr_client
+                    )
+                    agent_instance = DaprAgent(
+                        name=f"OpenAIAgentJob-{job_session_id[:6]}",
+                        role="Job Processing AI Assistant (OpenAI)",
+                        goal="Process the given task description and provide a comprehensive result.",
+                        instructions=[
+                            "You are an AI assistant processing a job task.",
+                            "Provide a detailed and accurate response to the task description.",
+                            "The user is not directly conversing, this is an automated job execution."
+                        ],
+                        memory=session_memory,
+                        tools=[], 
+                        model="gpt-3.5-turbo",
+                    )
+                    dapr_agent_instances[job_session_id] = agent_instance
+                else:
+                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for job-session {job_session_id}")
+                
+                current_dapr_agent = dapr_agent_instances[job_session_id]
+                print(f"Worker ({AGENT_ID}): Invoking DaprAgent for job {job_session_id} with input: '{description}'.")
+                
+                agent_response = await current_dapr_agent.run(description)
+                
+                if isinstance(agent_response, str):
+                    llm_response_text = agent_response
+                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str):
+                    llm_response_text = agent_response.content
+                else:
+                    llm_response_text = str(agent_response)
+
+                if not llm_response_text.strip():
+                    llm_response_text = "LLM agent did not return a text response for the job."
+
+        except Exception as e:
+            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent for job {job_session_id}: {e}")
+            traceback.print_exc()
+            llm_response_text = f"Error processing job task with LLM: {str(e)}"
+
         return {
-            "received_description": description,
-            "status": f"Processed by {AGENT_ID}",
-            "notes": "User task simulation complete."
+            "llm_response": llm_response_text, # This will be the main output
+            "status_notes": f"Processed by {AGENT_NAME} ({AGENT_ID})",
+            "original_task_description": description
         }
 
     else:
@@ -207,8 +260,25 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     )
     
     # Simulate job processing
-    result = await execute_job(job_data)
+    result = await execute_job(job_data) # result is now a dict, potentially with "llm_response"
     
+    # If the job was a user_task and an LLM response was generated, send it as a chat message
+    if job_data.get("task_type") == "user_task" and isinstance(result, dict) and "llm_response" in result:
+        llm_chat_content = result["llm_response"]
+        chat_payload = {
+            "sender_id": AGENT_ID,
+            "content": llm_chat_content,
+            "timestamp": datetime.now().isoformat(),
+            "session_id": job_data['id'] # Use job_id as session_id for the chat message
+        }
+        print(f"Worker ({AGENT_ID}): Sending LLM job response as chat message for job {job_data['id']}")
+        await dapr_client.publish_event(
+            pubsub_name="pubsub",
+            topic_name="chat-messages",
+            data=json.dumps(chat_payload), 
+            data_content_type="application/json"
+        )
+
     # Update job completion
     job_data["status"] = "completed"
     job_data["completed_at"] = datetime.now().isoformat()
