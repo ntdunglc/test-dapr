@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import httpx
@@ -10,7 +10,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Proxy API calls to coordinator
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def proxy(path: str, request):
+async def proxy(path: str, request: Request):
     async with httpx.AsyncClient() as client:
         # Forward request to coordinator's application port
         url = f"http://localhost:8000/{path}" # Corrected to coordinator's app port

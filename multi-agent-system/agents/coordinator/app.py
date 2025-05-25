@@ -228,7 +228,9 @@ async def login(username: str = Form(...), password: str = Form(...)):
         )
     
     to_encode = {"sub": username}
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    # Ensure the key is bytes for JWT operations
+    secret_key_bytes = SECRET_KEY.encode('utf-8')
+    encoded_jwt = jwt.encode(to_encode, secret_key_bytes, algorithm=ALGORITHM)
     return {"access_token": encoded_jwt, "token_type": "bearer"}
 
 @app.get("/protected")
@@ -236,7 +238,9 @@ async def protected_route(credentials: HTTPAuthorizationCredentials = Depends(se
     """A protected route that requires JWT authentication."""
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        # Ensure the key is bytes for JWT operations
+        secret_key_bytes = SECRET_KEY.encode('utf-8')
+        payload = jwt.decode(token, secret_key_bytes, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(
