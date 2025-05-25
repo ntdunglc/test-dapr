@@ -1,6 +1,7 @@
 version: 1
 common:
   resourcesPath: ./components/
+  config: dapr-tracing-config
 apps:
   - appID: coordinator
     appDirPath: ./agents/coordinator/
