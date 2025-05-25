@@ -29,7 +29,7 @@ multi-agent-system/
 │   ├── coordinator/
 │   │   ├── app.py
 │   │   └── requirements.txt
-│   ├── worker/
+│   ├── worker/  # Contains the Echo Worker agent
 │   │   ├── app.py
 │   │   └── requirements.txt
 │   └── chat/
@@ -63,11 +63,11 @@ Follow these steps from the root directory of the `multi-agent-system` project.
     *Note: If you encounter issues with `pydantic-core` during installation, especially on newer Python versions or specific OS/architectures, you might need to ensure you have Rust/Cargo installed or try an older compatible version of `pydantic` or related libraries.*
 
 2.  **Start Dapr Applications:**
-    Use the Dapr CLI to run all defined applications (coordinator, worker, chat) as specified in `dapr.yaml`. Execute this command from the `multi-agent-system` root directory:
+    Use the Dapr CLI to run all defined applications (coordinator, echo_worker, chat) as specified in `dapr.yaml`. Execute this command from the `multi-agent-system` root directory:
     ```bash
     dapr run -f .
     ```
-    This command will start the coordinator, worker, and chat agents, each with its own Dapr sidecar. You will see logs from Dapr and the individual applications in your terminal.
+    This command will start the coordinator, echo_worker, and chat agents, each with its own Dapr sidecar. You will see logs from Dapr and the individual applications in your terminal.
 
 3.  **Start the Web UI:**
     In a **new terminal window**, navigate to the `web-ui` directory and start the FastAPI server for the UI.
@@ -102,7 +102,7 @@ Follow these steps from the root directory of the `multi-agent-system` project.
     *   Ensure the coordinator agent (`appID: coordinator`) is running correctly (check Dapr logs). It's configured to run on port 8000.
     *   The Web UI's `app.js` connects to `ws://localhost:8000/ws/...`. The `server.py` for the UI runs on port 8080 and proxies API calls, but WebSockets connect directly.
 *   **Jobs Not Processing:**
-    *   Check the logs for the `worker` agent.
+    *   Check the logs for the `echo_worker` agent (formerly `worker`).
     *   Verify that the `pubsub` component is correctly configured and that messages are being published to the `job-queue` topic.
 *   **State Not Persisting:**
     *   Check the `statestore` component configuration.
@@ -131,7 +131,7 @@ To run this script:
 ## Advanced Features
 
 Refer to `dapr_test/claude_plan.md` for information on:
-*   Scaling Workers
+*   Scaling Echo Workers (Example: `dapr run --app-id echo_worker-2 --app-port 8003 --dapr-http-port 3503 -- python agents/worker/app.py`)
 *   Authentication (JWT implementation in coordinator)
 *   Monitoring and Observability (Dapr tracing with Zipkin)
 ```

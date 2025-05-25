@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
 
-AGENT_ID = "worker-1"
-AGENT_NAME = "Task Processor Alpha" # Changed agent name
+AGENT_ID = "worker-1" # Internal ID, can remain the same
+AGENT_NAME = "Echo Worker" # New display name
 
 
 # Custom TopicEvent model to make 'route' field optional
@@ -45,8 +45,8 @@ async def _register_with_coordinator(): # Renamed and made internal
     print(f"Worker ({AGENT_ID}): Attempting to register with coordinator.")
     agent_data = {
         "id": AGENT_ID,
-        "name": AGENT_NAME,
-        "type": "worker",
+        "name": AGENT_NAME, # Will be "Echo Worker"
+        "type": "echo",    # New type for UI display
         "status": "active"
     }
     
@@ -210,21 +210,24 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         return {"status": "DROP", "error": "chat_data not a dictionary"}
     
     # Process message and potentially respond
-    if "help" in message_data.get("content", "").lower():
-        incoming_session_id = message_data.get("session_id") # Get session_id from incoming message
+    original_content = message_data.get("content", "")
+    if "@echo" in original_content:
+        incoming_session_id = message_data.get("session_id")
         if not incoming_session_id:
-            print(f"Worker ({AGENT_ID}): Received help request without session_id. Cannot reply specifically.")
-            # Optionally, could reply to a 'global' or default session, or not reply.
-            return {"status": "DROP", "error": "missing session_id in help request"}
+            print(f"Worker ({AGENT_ID}): Received @echo request without session_id. Cannot reply specifically.")
+            return {"status": "DROP", "error": "missing session_id in @echo request"}
 
+        # Remove the @echo tag and trim whitespace for the reply
+        content_to_echo = original_content.replace("@echo", "").strip()
+        
         response = {
-            "sender_id": AGENT_ID,
-            "content": f"{AGENT_NAME} here. How can I assist (session: {incoming_session_id[:6]})?",
+            "sender_id": AGENT_ID, # Will be "worker-1"
+            "content": f"Echo: {content_to_echo} (session: {incoming_session_id[:6]})",
             "timestamp": datetime.now().isoformat(),
-            "session_id": incoming_session_id # Include session_id in the response
+            "session_id": incoming_session_id
         }
         
-        print(f"Worker ({AGENT_ID}): Sending help reply: {response}")
+        print(f"Worker ({AGENT_ID}): Sending echo reply: {response}")
         await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
