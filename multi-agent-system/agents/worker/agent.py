@@ -277,52 +277,8 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         llm_reply_text = ""
         current_adk_session_id = None # This is for ADK's internal session, distinct from chat session_id
 
-        history_for_llm = []
-        try:
-            current_message_timestamp_str = message_data.get('timestamp')
-            if not current_message_timestamp_str:
-                print(f"Worker ({AGENT_ID}): Missing timestamp in current message. Cannot reliably fetch history.")
-                all_messages = []
-            else:
-                current_message_timestamp = datetime.fromisoformat(current_message_timestamp_str)
-                user_id_for_session = message_data.get('sender_id')
-
-                print(f"Worker ({AGENT_ID}): Fetching chat history for session {incoming_session_id} for @llm command.")
-                chat_history_response = await dapr_client.invoke_method(
-                    app_id="chat",
-                    method_name=f"chat/history/{incoming_session_id}",
-                    data=None, # Explicitly pass data as None for GET
-                    http_verb="GET"
-                )
-                if chat_history_response.data:
-                    raw_history = json.loads(chat_history_response.data.decode())
-                    all_messages = raw_history.get("messages", [])
-                else:
-                    all_messages = []
-            
-                for msg in all_messages:
-                    msg_timestamp_str = msg.get('timestamp')
-                    if not msg_timestamp_str:
-                        continue 
-                    
-                    msg_timestamp = datetime.fromisoformat(msg_timestamp_str)
-                    if msg_timestamp < current_message_timestamp:
-                        role = None
-                        text_content = msg.get('content', '')
-                        if msg.get('sender_id') == AGENT_ID:
-                            role = 'model'
-                        elif msg.get('sender_id') == user_id_for_session:
-                            role = 'user'
-                            # Clean up @llm from historical user messages to avoid confusing the LLM
-                            text_content = text_content.replace("@llm", "").strip()
-                        
-                        if role:
-                            history_for_llm.append(genai_types.Content(role=role, parts=[genai_types.Part(text=text_content)]))
-                print(f"Worker ({AGENT_ID}): Prepared {len(history_for_llm)} messages for LLM history.")
-
-        except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error processing or fetching chat history for session {incoming_session_id}: {e}")
-            # Proceed without history if an error occurs
+        # ADK manages history internally via its session_service and the current_adk_session_id.
+        # We do not need to fetch and pass history manually.
 
         try:
             api_key = os.getenv("GOOGLE_API_KEY")
@@ -349,7 +305,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     print(f"Worker ({AGENT_ID}): Using existing ADK session {current_adk_session_id} for incoming chat session {incoming_session_id}")
 
                 if current_adk_session_id and not llm_reply_text:
-                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_llm}' and {len(history_for_llm)} history messages.")
+                    print(f"Worker ({AGENT_ID}): Invoking ADK Runner for ADK session {current_adk_session_id} with input: '{content_for_llm}'. ADK will manage history.")
                     agent_reply_parts = []
                     
                     new_llm_message = genai_types.Content(role='user', parts=[genai_types.Part(text=content_for_llm)])
@@ -357,7 +313,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     async for event in adk_runner.run_async(
                         user_id=adk_user_id,
                         session_id=current_adk_session_id,
-                        history=history_for_llm if history_for_llm else None, # Changed to 'history'
+                        # ADK Runner manages history internally based on session_id
                         new_message=new_llm_message
                     ):
                         if event.author != 'user' and event.content and event.content.parts:
