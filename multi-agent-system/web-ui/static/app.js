@@ -50,6 +50,7 @@ function handleMessage(message) {
             }
             break;
         case 'agent_update':
+            console.log("UI: Received agent_update message:", message.data); // Added log
             updateAgentDisplay(message.data);
             break;
     }

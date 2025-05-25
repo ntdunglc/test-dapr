@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 dapr_client: DaprClient = None # type: ignore
 
 AGENT_ID = "worker-1"
-AGENT_NAME = "Worker Agent 1"
+AGENT_NAME = "Task Processor Alpha" # Changed agent name
 
 
 # Custom TopicEvent model to make 'route' field optional
