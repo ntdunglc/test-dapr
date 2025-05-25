@@ -136,12 +136,20 @@ async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         if len(current_messages) > 100: # Keep only last 100 messages
             current_messages = current_messages[-100:]
         
+        value_to_save = json.dumps(current_messages)
+        print(f"Chat Agent: Attempting to save to key {conversation_key}. Value type: {type(value_to_save)}, Value (repr): {value_to_save!r}")
         await dapr_client.save_state(
             store_name=STATE_STORE_NAME,
             key=conversation_key,
-            value=json.dumps(current_messages)
+            value=value_to_save
         )
-        print(f"Chat Agent: Stored/updated message list for session {actual_session_id} under key {conversation_key}")
+        # To confirm what was read back immediately (optional, can be noisy)
+        # try:
+        #     state_after_save = await dapr_client.get_state(store_name=STATE_STORE_NAME, key=conversation_key)
+        #     print(f"Chat Agent: Verified save for key {conversation_key}. Read back data (repr): {state_after_save.data!r}")
+        # except Exception as verify_e:
+        #     print(f"Chat Agent: Error verifying save for key {conversation_key}: {verify_e}")
+        print(f"Chat Agent: Stored/updated message list for session {actual_session_id} under key {conversation_key}. Saved value (repr): {value_to_save!r}")
         return {"status": "SUCCESS"}
     except Exception as e:
         print(f"Chat Agent: Error processing and storing chat message: {e}. Data: {message_data}")
