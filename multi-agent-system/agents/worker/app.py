@@ -169,10 +169,14 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages"""
+    print(f"Worker Agent: Received chat event. Type of event.data: {type(event.data)}, event.data: {repr(event.data)}")
+    print(f"Worker Agent: event.data_content_type: {repr(event.data_content_type)}")
     message_data = event.data
     if isinstance(message_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
+        print(f"Worker Agent: Attempting json.loads on chat message_data: {repr(message_data)}")
         try:
             message_data = json.loads(message_data)
+            print(f"Worker Agent: Successfully parsed chat message_data. New type: {type(message_data)}, value: {repr(message_data)}")
         except json.JSONDecodeError as e:
             print(f"Worker: Failed to decode JSON message_data: {e}. Data: {event.data}")
             return {"status": "DROP"} # Or RETRY

@@ -56,10 +56,23 @@ class CustomTopicEvent(BaseModel):
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Store chat messages in state store"""
+    print(f"Chat Agent: Received event. Type of event.data: {type(event.data)}, event.data: {repr(event.data)}")
+    print(f"Chat Agent: event.data_content_type: {repr(event.data_content_type)}")
+
     message_data = event.data
+    
+    # Log before the conditional processing
+    print(f"Chat Agent: Initial message_data type: {type(message_data)}, value: {repr(message_data)}")
+    print(f"Chat Agent: Condition check: isinstance(message_data, str) is {isinstance(message_data, str)}")
+    print(f"Chat Agent: Condition check: event.data_content_type is {repr(event.data_content_type)}")
+    if event.data_content_type:
+        print(f"Chat Agent: Condition check: 'application/json' in event.data_content_type.lower() is {'application/json' in event.data_content_type.lower()}")
+
     if isinstance(message_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
+        print(f"Chat Agent: Attempting json.loads on message_data: {repr(message_data)}")
         try:
             message_data = json.loads(message_data)
+            print(f"Chat Agent: Successfully parsed message_data. New type: {type(message_data)}, value: {repr(message_data)}")
         except json.JSONDecodeError as e:
             print(f"Chat: Failed to decode JSON message_data: {e}. Data: {event.data}")
             return {"status": "DROP"} # Or RETRY
