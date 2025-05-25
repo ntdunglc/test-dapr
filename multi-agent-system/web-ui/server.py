@@ -18,9 +18,11 @@ async def proxy(path: str, request: Request):
     async with httpx.AsyncClient() as client:
         url: str
         # Route chat history requests to the chat agent, others to coordinator
-        if path == "api/chat/history/global":
-            # Forward to chat agent's application port and specific endpoint
-            url = "http://localhost:8002/chat/history/global"
+        if path.startswith("api/chat/history/"):
+            # Extract the part after "api/" to match the chat agent's endpoint structure
+            # e.g., if path is "api/chat/history/some-id", actual_chat_path becomes "chat/history/some-id"
+            actual_chat_path = path[len("api/"):] 
+            url = f"http://localhost:8002/{actual_chat_path}"
         else:
             # Forward other requests to coordinator's application port
             url = f"http://localhost:8000/{path}"
