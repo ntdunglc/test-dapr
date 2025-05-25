@@ -11,7 +11,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 
 from google.adk.agents import LlmAgent
-from google.adk.core import InferenceRequest, StandardInput, InferenceContext # Re-adding for process method
+# No longer need these imports since we're using the invoke method instead of process
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -46,14 +46,52 @@ class CustomTopicEvent(BaseModel):
 
 # Define an ADK LlmAgent based on the provided documentation
 class AdkLlmGreeterAgent(LlmAgent):
-    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash-latest"): # Updated model name
+    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash"): # Updated model name
         super().__init__(
             name=name,
             description="An ADK agent that greets or answers questions using an LLM.",
             instruction="You are a friendly and helpful agent. If given a name, greet the person warmly. If asked a question, provide a concise and accurate answer. If the question is complex, you can say you need more time or tools.",
             model=model
         )
-        # The LlmAgent initializes its LLM client if an API key is available.
+        # For programmatic invocation, ensure the agent is "ready"
+        # In many ADK setups, readiness is handled by the Runner.
+        # For direct use, the LlmAgent initializes its LLM client if an API key is available.
+
+async def run_agent_programmatically(agent_instance: LlmAgent, user_input_text: str):
+    """
+    Invokes the ADK agent programmatically with a given text input.
+
+    Args:
+        agent_instance: The instantiated ADK agent.
+        user_input_text: The text input for the agent.
+
+    Returns:
+        The text response from the agent, or None if an error occurs.
+    """
+    print(f"\nInvoking agent '{agent_instance.name}' with input: '{user_input_text}'")
+    try:
+        # The `invoke` method is used for direct programmatic calls to an agent.
+        # It typically expects a dictionary as input. For an LlmAgent,
+        # this input is often used to fill placeholders in a prompt or directly
+        # passed to the LLM along with the agent's standing 'instruction'.
+        # A common input key for general text is "text" or "input".
+        response_payload = await agent_instance.invoke({"text": user_input_text})
+
+        # The response_payload is also a dictionary.
+        # For an LlmAgent, the LLM's generated text is usually under the "text" key.
+        if isinstance(response_payload, dict) and "text" in response_payload:
+            return response_payload["text"]
+        else:
+            print(f"Unexpected response structure: {response_payload}")
+            return str(response_payload) # Fallback
+
+    except Exception as e:
+        print(f"Error invoking agent '{agent_instance.name}': {e}")
+        # Common issues:
+        # - Missing GOOGLE_API_KEY or invalid key.
+        # - Network issues.
+        # - Issues with the selected LLM model.
+        return None
 
 # Note: We are not creating a global root_agent instance here for AdkLlmGreeterAgent.
 # It will be instantiated on demand within handle_chat_message to allow runtime API key check.
@@ -264,40 +302,12 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 adk_llm_agent_instance = AdkLlmGreeterAgent()
                 print(f"Worker ({AGENT_ID}): Invoking ADK LLM agent '{adk_llm_agent_instance.name}' with input: '{content_for_adk}'")
 
-                # Invoke the ADK LlmAgent using the process method
-                # The process method is typically synchronous for LlmAgent if it makes a direct LLM call.
-                # We'll run it in a thread to keep our FastAPI endpoint async.
+                # Use the improved run_agent_programmatically function
+                adk_reply_text = await run_agent_programmatically(adk_llm_agent_instance, content_for_adk)
                 
-                # Construct an InferenceRequest
-                # For LlmAgent, the input data might be simpler, often just text.
-                # The ADK framework usually wraps this. For direct calls, we might need to adapt.
-                # LlmAgent's process method expects an InferenceRequest.
-                # The 'instruction' is part of the agent's definition.
-                # The 'text' from the user is the primary input for this turn.
-                
-                # Create a minimal InferenceRequest. The LlmAgent will use its configured model and instruction.
-                # The StandardInput is a common way to pass text.
-                adk_request = InferenceRequest(data=StandardInput(text=content_for_adk))
-
-                # The LlmAgent.process method might be synchronous.
-                # If LlmAgent.process is async, then direct await is fine.
-                # If it's sync, use asyncio.to_thread.
-                # Let's assume LlmAgent.process itself is synchronous as it often directly calls the LLM client.
-                # However, the example showed 'invoke' as async. Let's try 'process' as async first.
-                # If LlmAgent.process is not an async method, this will error.
-                # The ADK LlmAgent's `process` method is indeed synchronous.
-                
-                adk_response = await asyncio.to_thread(
-                    adk_llm_agent_instance.process, # Use process method
-                    adk_request,
-                    InferenceContext() # Default context
-                )
-                
-                if adk_response and adk_response.data and hasattr(adk_response.data, 'text'):
-                    adk_reply_text = adk_response.data.text
-                else:
-                    print(f"Worker ({AGENT_ID}): Unexpected ADK response structure: {adk_response}")
-                    adk_reply_text = f"ADK LLM processed, but response format was unexpected: {str(adk_response)[:100]}"
+                if not adk_reply_text:
+                    print(f"Worker ({AGENT_ID}): No response from ADK agent")
+                    adk_reply_text = "ADK LLM agent did not return a response. Please check logs for details."
             
             response_payload = {
                 "sender_id": AGENT_ID, 
