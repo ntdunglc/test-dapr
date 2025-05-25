@@ -256,30 +256,83 @@ function renderSessionList() {
 }
 
 
-// Submit a new job
-async function submitJob() {
-    const taskTypes = ['data_processing', 'analysis'];
-    const taskType = taskTypes[Math.floor(Math.random() * taskTypes.length)];
+// Job Submission Modal Functions
+const jobModal = document.getElementById('job-modal');
+const jobAgentSelect = document.getElementById('job-agent-select');
+const jobDescriptionInput = document.getElementById('job-description');
+
+function openSubmitJobModal() {
+    // Populate agent select
+    jobAgentSelect.innerHTML = '<option value="">Any Agent</option>'; // Default option
+    if (registered_agents_cache && Object.keys(registered_agents_cache).length > 0) {
+        Object.values(registered_agents_cache).forEach(agent => {
+            const option = document.createElement('option');
+            option.value = agent.id;
+            option.textContent = `${agent.name} (${agent.id.substring(0,8)})`;
+            jobAgentSelect.appendChild(option);
+        });
+    } else {
+        // Optionally, fetch agents if cache is empty, or disable specific agent selection
+        console.log("No agents in cache to populate dropdown. User can only select 'Any Agent'.");
+    }
     
-    const payload = {
-        item_count: Math.floor(Math.random() * 1000) + 100,
-        priority: Math.random() > 0.5 ? 'high' : 'normal'
-    };
-    
-    const response = await fetch('/jobs/submit', { // Corrected path
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            task_type: taskType,
-            payload: payload
-        })
-    });
-    
-    const result = await response.json();
-    console.log('Job submitted:', result.job_id);
+    jobDescriptionInput.value = ''; // Clear previous description
+    jobModal.style.display = 'block';
 }
+
+function closeSubmitJobModal() {
+    jobModal.style.display = 'none';
+}
+
+async function handleModalJobSubmit() {
+    const selectedAgentId = jobAgentSelect.value;
+    const description = jobDescriptionInput.value.trim();
+
+    if (!description) {
+        alert('Please enter a job description.');
+        return;
+    }
+
+    const jobData = new FormData();
+    jobData.append('task_type', 'user_task'); // New task type for these kinds of jobs
+    jobData.append('description', description);
+    if (selectedAgentId) {
+        jobData.append('agent_id', selectedAgentId);
+    }
+    // Note: No explicit 'payload' key here, description is top-level.
+    // The coordinator will construct the payload.
+
+    try {
+        const response = await fetch('/jobs/submit', {
+            method: 'POST',
+            // Headers are not 'Content-Type': 'application/json' when using FormData
+            // The browser will set the correct Content-Type for FormData (multipart/form-data)
+            body: jobData
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Job submitted from modal:', result.job_id);
+            updateJobDisplay({ // Optimistically add/update job display
+                id: result.job_id,
+                agent_id: selectedAgentId || null,
+                status: "pending", // Initial status
+                task_type: "user_task",
+                payload: { description: description },
+                created_at: new Date().toISOString()
+            });
+        } else {
+            console.error('Failed to submit job:', response.status, await response.text());
+            alert(`Failed to submit job: ${await response.text()}`);
+        }
+    } catch (error) {
+        console.error('Error submitting job:', error);
+        alert(`Error submitting job: ${error.message}`);
+    }
+
+    closeSubmitJobModal();
+}
+
 
 // Send chat message
 function sendMessage() {
@@ -319,7 +372,8 @@ function updateJobDisplay(job) {
             <span class="status ${job.status}">${job.status}</span>
         </div>
         <div>Type: ${job.task_type}</div>
-        ${job.agent_id ? `<div>Agent: ${job.agent_id}</div>` : ''}
+        ${job.agent_id ? `<div>Agent: ${job.agent_id.substring(0,8)}</div>` : '<div>Agent: Any</div>'}
+        ${job.payload && job.payload.description ? `<div>Desc: ${job.payload.description.substring(0,50)}${job.payload.description.length > 50 ? '...' : ''}</div>` : ''}
         ${job.result ? `<div>Result: ${JSON.stringify(job.result)}</div>` : ''}
     `;
 }

@@ -94,6 +94,16 @@ async def execute_job(job_data: dict) -> dict:
             "confidence": 0.95
         }
     
+    elif task_type == "user_task":
+        description = payload.get("description", "No description provided.")
+        print(f"Worker ({AGENT_ID}): Processing user_task. Description: '{description}'")
+        await asyncio.sleep(2) # Simulate work
+        return {
+            "received_description": description,
+            "status": f"Processed by {AGENT_ID}",
+            "notes": "User task simulation complete."
+        }
+
     else:
         return {"error": f"Unknown task type: {task_type}"}
 
@@ -156,14 +166,36 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
         return {"status": "DROP", "error": "event.data for job has unexpected type"}
 
     try:
-        print(f"Received job: {job_data['id']}")
+        job_id = job_data['id']
+        target_agent_id = job_data.get("agent_id")
+        print(f"Worker ({AGENT_ID}): Received job: {job_id}. Target agent: {target_agent_id}")
     except KeyError:
-        print(f"Worker Agent: 'id' key missing in job_data. Data: {repr(job_data)}")
+        print(f"Worker Agent ({AGENT_ID}): 'id' key missing in job_data. Data: {repr(job_data)}")
         return {"status": "DROP", "error": "missing 'id' in job_data"}
     except TypeError:
-        print(f"Worker Agent: job_data is not a dictionary, cannot access 'id'. Data: {repr(job_data)}")
+        print(f"Worker Agent ({AGENT_ID}): job_data is not a dictionary, cannot access 'id'. Data: {repr(job_data)}")
         return {"status": "DROP", "error": "job_data not a dictionary"}
-    
+
+    # Check if the job is assigned to a specific agent and if it's this agent
+    if target_agent_id and target_agent_id != AGENT_ID:
+        print(f"Worker ({AGENT_ID}): Job {job_id} is for agent {target_agent_id}, not me. Skipping.")
+        # This worker will not process it. Another worker with the correct ID should.
+        # If Dapr's pub/sub is used with competing consumers, this message might be effectively lost
+        # if no other consumer picks it up or if redelivery isn't configured robustly for this scenario.
+        # For true targeted delivery, direct invocation or agent-specific topics would be better.
+        # For now, we just acknowledge and don't process.
+        return {"status": "RETRY"} # Or "SUCCESS" if we don't want Dapr to retry with this consumer.
+                                    # "DROP" if the message is malformed/unrecoverable.
+                                    # Let's use "SUCCESS" to indicate we've seen it but it's not for us.
+                                    # Dapr default is to ACK on 2xx.
+                                    # If we want other workers to get a chance, this worker should not "complete" it.
+                                    # However, with pub/sub, all subscribers get a copy.
+                                    # The current model is that any worker *can* pick any job.
+                                    # The filtering here is an application-level decision.
+                                    # So, if it's not for me, I just successfully do nothing.
+        return {"status": "SUCCESS", "message": f"Job {job_id} not for this agent."}
+
+
     # Update job status to processing
     job_data["status"] = "processing"
     job_data["agent_id"] = AGENT_ID

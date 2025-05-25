@@ -35,8 +35,28 @@
                     <!-- Job Queue -->
                     <div class="panel">
                         <h2>Jobs</h2>
-                        <button onclick="submitJob()">Submit New Job</button>
+                        <button onclick="openSubmitJobModal()">Submit New Job</button>
                         <div id="jobs-list"></div>
+                    </div>
+
+                    <!-- Job Submission Modal -->
+                    <div id="job-modal" class="modal">
+                        <div class="modal-content">
+                            <span class="close-button" onclick="closeSubmitJobModal()">&times;</span>
+                            <h2>Submit New Job</h2>
+                            <div>
+                                <label for="job-agent-select">Assign to Agent:</label>
+                                <select id="job-agent-select">
+                                    <!-- Options will be populated by JS -->
+                                </select>
+                            </div>
+                            <div>
+                                <label for="job-description">Job Description:</label>
+                                <textarea id="job-description" rows="4"></textarea>
+                            </div>
+                            <button onclick="handleModalJobSubmit()">Submit Job</button>
+                            <button onclick="closeSubmitJobModal()" class="cancel-button">Cancel</button>
+                        </div>
                     </div>
                     
                     <!-- Chat Interface -->

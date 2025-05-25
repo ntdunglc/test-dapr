@@ -205,12 +205,23 @@ async def get_sessions():
 
 # Job Management
 @app.post("/jobs/submit")
-async def submit_job(task_type: str, payload: dict):
-    """Submit a new job to the queue"""
+async def submit_job(
+    task_type: str = Form(...),
+    description: str = Form(...),
+    agent_id: Optional[str] = Form(None)
+):
+    """Submit a new job to the queue.
+    Can be assigned to a specific agent or be general.
+    """
+    job_id = str(uuid.uuid4())
+    job_payload = {"description": description} # Standardize payload for user tasks
+
     job = Job(
-        id=str(uuid.uuid4()),
-        task_type=task_type,
-        payload=payload,
+        id=job_id,
+        agent_id=agent_id, # Assign agent if specified
+        status="pending",
+        task_type=task_type, # e.g., "user_task"
+        payload=job_payload,
         created_at=datetime.now()
     )
     

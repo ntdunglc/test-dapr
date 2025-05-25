@@ -157,3 +157,70 @@ button:hover {
 .status.pending { background: #6c757d; color: white; }
 .status.processing { background: #17a2b8; color: white; }
 .status.completed { background: #28a745; color: white; }
+
+/* Modal Styles */
+.modal {
+    display: none; /* Hidden by default */
+    position: fixed; /* Stay in place */
+    z-index: 1000; /* Sit on top */
+    left: 0;
+    top: 0;
+    width: 100%; /* Full width */
+    height: 100%; /* Full height */
+    overflow: auto; /* Enable scroll if needed */
+    background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 15% auto; /* 15% from the top and centered */
+    padding: 20px;
+    border: 1px solid #888;
+    width: 80%; /* Could be more or less, depending on screen size */
+    max-width: 500px;
+    border-radius: 8px;
+    position: relative;
+}
+
+.modal-content div {
+    margin-bottom: 15px;
+}
+
+.modal-content label {
+    display: block;
+    margin-bottom: 5px;
+}
+
+.modal-content select,
+.modal-content textarea {
+    width: calc(100% - 22px); /* Full width minus padding and border */
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: black;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.modal-content button {
+    margin-right: 10px;
+}
+
+.modal-content button.cancel-button {
+    background-color: #6c757d;
+}
+.modal-content button.cancel-button:hover {
+    background-color: #5a6268;
+}
