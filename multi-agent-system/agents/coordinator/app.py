@@ -111,6 +111,9 @@ async def register_agent(agent: Agent):
         }),
         data_content_type="application/json" # Specify content type
     )
+
+    # Notify WebSocket clients about the new agent
+    await broadcast_agent_update(agent.model_dump(mode='json'))
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
 
@@ -164,6 +167,20 @@ async def submit_job(task_type: str, payload: dict):
     await broadcast_job_update(job.model_dump(mode='json'))
     
     return {"job_id": job.id}
+
+async def broadcast_agent_update(agent_data: dict):
+    """Broadcast agent updates to all connected clients"""
+    message = {
+        "type": "agent_update",
+        "data": agent_data
+    }
+    
+    for client_id, websocket in websocket_connections.items():
+        try:
+            await websocket.send_json(message)
+        except:
+            # Handle potential errors during send, e.g., client disconnected
+            pass
 
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
