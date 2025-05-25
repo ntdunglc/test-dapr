@@ -3,6 +3,7 @@ const clientId = Math.random().toString(36).substring(7); // This is for WebSock
 // let currentSessionId = null; // Replaced by currentChatTarget
 let currentChatTarget = { type: null, id: null }; // type: 'session' or 'job', id: session_id or job_id
 let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
+let known_jobs_cache = {}; // Cache for full job objects
 let persistentUserId = null;
 let registered_agents_cache = {}; // Initialize agent cache
 
@@ -87,8 +88,11 @@ async function loadInitialData() {
             const jobs = await jobsResponse.json(); // Assuming server returns newest first
             // Reverse order for processing because updateJobDisplay prepends,
             // so processing oldest first will result in newest at the top.
-            jobs.reverse().forEach(job => updateJobDisplay(job));
-            console.log(`Loaded ${jobs.length} existing jobs.`);
+            jobs.reverse().forEach(job => {
+                known_jobs_cache[job.id] = job; // Cache the full job object
+                updateJobDisplay(job);
+            });
+            console.log(`Loaded ${jobs.length} existing jobs and cached them.`);
         } else {
             console.error("Failed to load existing jobs:", jobsResponse.status, await jobsResponse.text());
         }
@@ -268,6 +272,18 @@ async function focusJob(jobId) {
     updateActiveJobHighlight(jobId);
     updateActiveSessionHighlight(null);
 
+    // Display original job task
+    const job = known_jobs_cache[jobId];
+    if (job && job.payload && job.payload.description) {
+        const chatMessagesDiv = document.getElementById('chat-messages');
+        const taskElement = document.createElement('div');
+        taskElement.className = 'original-job-task';
+        taskElement.innerHTML = `<strong>Original Task:</strong><p>${job.payload.description.replace(/\n/g, '<br>')}</p>`;
+        chatMessagesDiv.appendChild(taskElement);
+    } else {
+        console.warn(`Could not find job description for job ${jobId} in cache.`);
+    }
+
     saveCurrentChatTargetToLocalStorage();
     await loadChatHistory(jobId, 'job'); // Use 'job' type to potentially fetch from a different conceptual endpoint if needed, though session_id is the key
 }
@@ -343,6 +359,7 @@ const jobDescriptionInput = document.getElementById('job-description');
 function openSubmitJobModal() {
     // Populate agent select
     jobAgentSelect.innerHTML = '<option value="">Any Agent</option>'; // Default option
+    console.log('Populating agent select in modal with cache:', registered_agents_cache); // Debug log
     if (registered_agents_cache && Object.keys(registered_agents_cache).length > 0) {
         Object.values(registered_agents_cache).forEach(agent => {
             const option = document.createElement('option');
@@ -392,14 +409,18 @@ async function handleModalJobSubmit() {
         if (response.ok) {
             const result = await response.json();
             console.log('Job submitted from modal:', result.job_id);
-            updateJobDisplay({ // Optimistically add/update job display
+            const newJobData = {
                 id: result.job_id,
                 agent_id: selectedAgentId || null,
                 status: "pending", // Initial status
                 task_type: "user_task",
                 payload: { description: description },
-                created_at: new Date().toISOString()
-            });
+                created_at: new Date().toISOString(),
+                result: null, // Initialize result as null
+                completed_at: null // Initialize completed_at as null
+            };
+            known_jobs_cache[result.job_id] = newJobData; // Cache the new job
+            updateJobDisplay(newJobData); // Optimistically add/update job display
         } else {
             console.error('Failed to submit job:', response.status, await response.text());
             alert(`Failed to submit job: ${await response.text()}`);
@@ -462,6 +483,9 @@ function updateJobDisplay(job) {
         jobElement.classList.remove('active-job');
     }
     
+    // Update cache with the latest job data (e.g., status updates from WebSocket)
+    known_jobs_cache[job.id] = job;
+
     const description = job.payload && job.payload.description ? job.payload.description : 'No description';
     jobElement.innerHTML = `
         <div>

@@ -278,3 +278,23 @@ button:hover {
     border-radius: 3px;
     font-family: monospace;
 }
+
+.original-job-task {
+    padding: 10px;
+    margin-bottom: 15px;
+    background-color: #e9f7fd; /* Light blue background */
+    border-left: 4px solid #17a2b8; /* Accent border */
+    color: #0c5460; /* Darker text color for contrast */
+    font-size: 0.9em;
+}
+
+.original-job-task strong {
+    display: block;
+    margin-bottom: 5px;
+    color: #007bff;
+}
+
+.original-job-task p {
+    margin: 0;
+    line-height: 1.4;
+}
