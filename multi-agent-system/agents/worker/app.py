@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from dapr.clients import DaprClient
+from dapr.aio.clients import DaprClient # Changed to async client
 from dapr.ext.fastapi import DaprApp
 import json
 import time
@@ -25,7 +25,7 @@ async def register_with_coordinator():
     }
     
     # Use Dapr service invocation to register
-    await dapr_client.invoke_method_async(
+    await dapr_client.invoke_method(
         app_id="coordinator",
         method_name="agents/register",
         data=json.dumps(agent_data),
@@ -44,7 +44,7 @@ async def process_job(event):
     job_data["status"] = "processing"
     job_data["agent_id"] = AGENT_ID
     
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=f"job-{job_data['id']}",
         value=json.dumps(job_data)
@@ -59,7 +59,7 @@ async def process_job(event):
     job_data["result"] = result
     
     # Publish completion event
-    await dapr_client.publish_event_async(
+    await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="job-completed",
         data=json.dumps(job_data)
@@ -106,7 +106,7 @@ async def handle_chat_message(event):
             "timestamp": datetime.now().isoformat()
         }
         
-        await dapr_client.publish_event_async(
+        await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
             data=json.dumps(response)
@@ -121,7 +121,7 @@ async def send_heartbeat():
             "last_heartbeat": datetime.now().isoformat()
         }
         
-        await dapr_client.save_state_async(
+        await dapr_client.save_state(
             store_name="statestore",
             key=f"agent-{AGENT_ID}",
             value=json.dumps(agent_data),

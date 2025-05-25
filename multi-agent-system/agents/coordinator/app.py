@@ -1,5 +1,5 @@
 from fastapi import FastAPI, WebSocket, HTTPException, Depends, Form, status
-from dapr.clients import DaprClient
+from dapr.aio.clients import DaprClient # Changed to async client
 from dapr.ext.fastapi import DaprApp
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -55,14 +55,14 @@ async def register_agent(agent: Agent):
     agent.last_heartbeat = datetime.now()
     
     # Save agent state
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=f"agent-{agent.id}",
         value=json.dumps(agent.model_dump())
     )
     
     # Publish agent registration event
-    await dapr_client.publish_event_async(
+    await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="agent-events",
         data=json.dumps({
@@ -85,7 +85,7 @@ async def create_session(user_id: str):
     )
     
     # Save session state
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=f"session-{session.id}",
         value=json.dumps(session.model_dump())
@@ -105,14 +105,14 @@ async def submit_job(task_type: str, payload: dict):
     )
     
     # Save job state
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=f"job-{job.id}",
         value=json.dumps(job.model_dump())
     )
     
     # Publish job to queue
-    await dapr_client.publish_event_async(
+    await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="job-queue",
         data=json.dumps(job.model_dump())
@@ -126,7 +126,7 @@ async def submit_job(task_type: str, payload: dict):
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     """Get job status"""
-    state = await dapr_client.get_state_async(
+    state = await dapr_client.get_state(
         store_name="statestore",
         key=f"job-{job_id}"
     )
@@ -177,7 +177,7 @@ async def publish_chat_message(sender_id: str, content: str):
         "timestamp": datetime.now().isoformat()
     }
     
-    await dapr_client.publish_event_async(
+    await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="chat-messages",
         data=json.dumps(message)
@@ -190,7 +190,7 @@ async def handle_job_completed(event):
     job_data = event.data
     
     # Update job state
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=f"job-{job_data['id']}",
         value=json.dumps(job_data)

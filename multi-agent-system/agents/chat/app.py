@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from dapr.clients import DaprClient
+from dapr.aio.clients import DaprClient # Changed to async client
 from dapr.ext.fastapi import DaprApp
 import json
 from datetime import datetime
@@ -19,7 +19,7 @@ async def store_chat_message(event):
     
     # Store message with timestamp key
     timestamp_key = f"chat-{message['timestamp']}"
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=timestamp_key,
         value=json.dumps(message)
@@ -29,7 +29,7 @@ async def store_chat_message(event):
     conversation_key = f"conversation-{message.get('session_id', 'global')}"
     
     # Get existing conversation
-    state = await dapr_client.get_state_async(
+    state = await dapr_client.get_state(
         store_name="statestore",
         key=conversation_key
     )
@@ -41,7 +41,7 @@ async def store_chat_message(event):
     if len(conversation["messages"]) > 100:
         conversation["messages"] = conversation["messages"][-100:]
     
-    await dapr_client.save_state_async(
+    await dapr_client.save_state(
         store_name="statestore",
         key=conversation_key,
         value=json.dumps(conversation)
@@ -54,7 +54,7 @@ async def get_chat_history(session_id: str):
     """Get chat history for a session"""
     conversation_key = f"conversation-{session_id}"
     
-    state = await dapr_client.get_state_async(
+    state = await dapr_client.get_state(
         store_name="statestore",
         key=conversation_key
     )
