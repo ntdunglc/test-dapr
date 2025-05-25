@@ -55,14 +55,14 @@ async def register_agent(agent: Agent):
     agent.last_heartbeat = datetime.now()
     
     # Save agent state
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=f"agent-{agent.id}",
         value=agent.dict()
     )
     
     # Publish agent registration event
-    dapr_client.publish_event(
+    await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="agent-events",
         data={
@@ -85,7 +85,7 @@ async def create_session(user_id: str):
     )
     
     # Save session state
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=f"session-{session.id}",
         value=session.dict()
@@ -105,14 +105,14 @@ async def submit_job(task_type: str, payload: dict):
     )
     
     # Save job state
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=f"job-{job.id}",
         value=job.dict()
     )
     
     # Publish job to queue
-    dapr_client.publish_event(
+    await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="job-queue",
         data=job.dict()
@@ -126,7 +126,7 @@ async def submit_job(task_type: str, payload: dict):
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     """Get job status"""
-    state = dapr_client.get_state(
+    state = await dapr_client.get_state_async(
         store_name="statestore",
         key=f"job-{job_id}"
     )
@@ -177,7 +177,7 @@ async def publish_chat_message(sender_id: str, content: str):
         "timestamp": datetime.now().isoformat()
     }
     
-    dapr_client.publish_event(
+    await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="chat-messages",
         data=message
@@ -190,7 +190,7 @@ async def handle_job_completed(event):
     job_data = event.data
     
     # Update job state
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=f"job-{job_data['id']}",
         value=job_data

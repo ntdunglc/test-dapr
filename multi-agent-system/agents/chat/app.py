@@ -19,7 +19,7 @@ async def store_chat_message(event):
     
     # Store message with timestamp key
     timestamp_key = f"chat-{message['timestamp']}"
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=timestamp_key,
         value=message
@@ -29,7 +29,7 @@ async def store_chat_message(event):
     conversation_key = f"conversation-{message.get('session_id', 'global')}"
     
     # Get existing conversation
-    state = dapr_client.get_state(
+    state = await dapr_client.get_state_async(
         store_name="statestore",
         key=conversation_key
     )
@@ -41,7 +41,7 @@ async def store_chat_message(event):
     if len(conversation["messages"]) > 100:
         conversation["messages"] = conversation["messages"][-100:]
     
-    dapr_client.save_state(
+    await dapr_client.save_state_async(
         store_name="statestore",
         key=conversation_key,
         value=conversation
@@ -54,7 +54,7 @@ async def get_chat_history(session_id: str):
     """Get chat history for a session"""
     conversation_key = f"conversation-{session_id}"
     
-    state = dapr_client.get_state(
+    state = await dapr_client.get_state_async(
         store_name="statestore",
         key=conversation_key
     )
