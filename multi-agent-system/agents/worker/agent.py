@@ -262,7 +262,8 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     print(f"Worker ({AGENT_ID}): Creating new DaprAgent (Gemini backend) for session {incoming_session_id}")
                     session_memory = ConversationDaprStateMemory(
                         store_name="statestore", 
-                        session_id=incoming_session_id
+                        session_id=incoming_session_id,
+                        dapr_client=dapr_client # Pass the existing DaprClient instance
                     )
                     
                     # Configure DaprAgent to use Gemini via OpenAI-compatible endpoint
