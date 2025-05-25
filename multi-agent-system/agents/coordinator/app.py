@@ -58,7 +58,7 @@ async def register_agent(agent: Agent):
     await dapr_client.save_state(
         store_name="statestore",
         key=f"agent-{agent.id}",
-        value=json.dumps(agent.model_dump())
+        value=agent.model_dump_json()
     )
     
     # Publish agent registration event
@@ -67,7 +67,7 @@ async def register_agent(agent: Agent):
         topic_name="agent-events",
         data=json.dumps({
             "event": "agent_registered",
-            "agent": agent.model_dump()
+            "agent": agent.model_dump(mode='json') # Ensure datetime is string for outer json.dumps
         })
     )
     
@@ -88,7 +88,7 @@ async def create_session(user_id: str):
     await dapr_client.save_state(
         store_name="statestore",
         key=f"session-{session.id}",
-        value=json.dumps(session.model_dump())
+        value=session.model_dump_json()
     )
     
     return {"session_id": session.id}
@@ -108,18 +108,18 @@ async def submit_job(task_type: str, payload: dict):
     await dapr_client.save_state(
         store_name="statestore",
         key=f"job-{job.id}",
-        value=json.dumps(job.model_dump())
+        value=job.model_dump_json()
     )
     
     # Publish job to queue
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="job-queue",
-        data=json.dumps(job.model_dump())
+        data=job.model_dump_json()
     )
     
     # Notify WebSocket clients
-    await broadcast_job_update(job.model_dump())
+    await broadcast_job_update(job.model_dump(mode='json'))
     
     return {"job_id": job.id}
 
