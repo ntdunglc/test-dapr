@@ -250,10 +250,13 @@ async def protected_route(credentials: HTTPAuthorizationCredentials = Depends(se
             )
         # Token is valid, username is extracted.
         return {"message": f"Hello {username}! This is a protected route.", "token_payload": payload}
-    except JWTError:
+    except JWTError as e:
+        error_type_name = type(e).__name__
+        error_message = str(e)
+        print(f"JWTError encountered in /protected route: {error_type_name} - {error_message}") # Log to coordinator console
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials - token error",
+            detail=f"Could not validate credentials - token error: {error_type_name}", # Include error type in response
             headers={"WWW-Authenticate": "Bearer"},
         )
 

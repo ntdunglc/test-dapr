@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import httpx
@@ -28,7 +28,28 @@ async def proxy(path: str, request: Request):
             headers=dict(request.headers)
         )
         
-        return response.content
+        # httpx's response.content provides the decoded response body as bytes.
+        response_body_bytes = response.content
+
+        # Prepare headers for the FastAPI response
+        # Filter out headers that should not be blindly proxied,
+        # especially those related to encoding or connection management.
+        excluded_headers = {"transfer-encoding", "connection", "content-encoding", "content-length"}
+        proxied_headers = {
+            key: value for key, value in response.headers.items()
+            if key.lower() not in excluded_headers
+        }
+        # Ensure 'content-type' is preserved if it exists and not already in proxied_headers (case-insensitively)
+        # (Note: proxied_headers keys are already lowercased by the comprehension's key.lower() check logic,
+        # so direct check for 'content-type' is fine)
+        if 'content-type' not in {k.lower() for k in proxied_headers.keys()} and response.headers.get('content-type'):
+            proxied_headers['content-type'] = response.headers['content-type']
+
+        return Response(
+            content=response_body_bytes,
+            status_code=response.status_code,
+            headers=proxied_headers
+        )
 
 @app.get("/")
 async def read_index():
