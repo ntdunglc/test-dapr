@@ -252,48 +252,44 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         llm_reply_text = ""
 
         try:
-            # Using Gemini API via OpenAI-compatible endpoint
-            gemini_api_key = os.getenv("GEMINI_API_KEY")
-            if not gemini_api_key:
-                print(f"Worker ({AGENT_ID}): GEMINI_API_KEY not set. Gemini LLM agent cannot be invoked.")
-                llm_reply_text = "LLM Agent requires GEMINI_API_KEY to be set."
+            # Using standard OpenAI API
+            openai_api_key = os.getenv("OPENAI_API_KEY")
+            if not openai_api_key:
+                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. OpenAI LLM agent cannot be invoked.")
+                llm_reply_text = "LLM Agent requires OPENAI_API_KEY to be set."
             else:
                 # Get or create a DaprAgent instance for this session
                 if incoming_session_id not in dapr_agent_instances:
-                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent (Gemini backend) for session {incoming_session_id}")
+                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for session {incoming_session_id}")
                     session_memory = ConversationDaprStateMemory(
                         store_name="statestore", 
                         session_id=incoming_session_id,
                         dapr_client=dapr_client # Pass the existing DaprClient instance
                     )
                     
-                    # Configure DaprAgent to use Gemini via OpenAI-compatible endpoint
-                    llm_client_args = {
-                        "api_key": gemini_api_key,
-                        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/"
-                    }
-
+                    # DaprAgent will use OPENAI_API_KEY from environment by default
+                    # when using an OpenAI model. No explicit llm_client_args needed for api_key/base_url.
                     agent_instance = DaprAgent(
-                        name=f"GeminiAgentSession-{incoming_session_id[:6]}",
-                        role="Conversational AI Assistant (Gemini)",
-                        goal="Assist users with their queries accurately and concisely using Gemini.",
+                        name=f"OpenAIAgentSession-{incoming_session_id[:6]}",
+                        role="Conversational AI Assistant (OpenAI)",
+                        goal="Assist users with their queries accurately and concisely using OpenAI.",
                         instructions=[
-                            "You are a helpful AI assistant powered by Google Gemini.",
+                            "You are a helpful AI assistant powered by OpenAI.",
                             "Provide clear and concise answers.",
                             "If you don't know the answer, say so."
                         ],
                         memory=session_memory,
                         tools=[], 
-                        model="gemini-2.0-flash", # Changed to a model explicitly in Google's OpenAI compatibility docs
-                        llm_client_args=llm_client_args 
+                        model="gpt-3.5-turbo", # Standard OpenAI model
+                        # llm_client_args is not needed here for standard OpenAI usage
                     )
                     dapr_agent_instances[incoming_session_id] = agent_instance
                 else:
-                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent (Gemini backend) for session {incoming_session_id}")
+                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for session {incoming_session_id}")
                 
                 current_dapr_agent = dapr_agent_instances[incoming_session_id]
 
-                print(f"Worker ({AGENT_ID}): Invoking DaprAgent (Gemini backend) for session {incoming_session_id} with input: '{content_for_llm}'.")
+                print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm}'.")
                 
                 # Run the agent with the user's content
                 # The DaprAgent's memory (ConversationDaprStateMemory) will handle history.
@@ -315,10 +311,10 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
-            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent (Gemini backend): {response_payload}")
+            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent (OpenAI backend): {response_payload}")
 
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (Gemini backend): {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (OpenAI backend): {e}")
             traceback.print_exc() # Print the full stack trace
             response_payload = {
                 "sender_id": AGENT_ID,
