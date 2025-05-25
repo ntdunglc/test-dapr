@@ -129,7 +129,7 @@ dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
 async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     """Process incoming jobs"""
     job_data = event.data
-    if isinstance(job_data, str) and event.data_content_type == 'application/json':
+    if isinstance(job_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
         try:
             job_data = json.loads(job_data)
         except json.JSONDecodeError as e:
@@ -170,7 +170,7 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
 async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages"""
     message_data = event.data
-    if isinstance(message_data, str) and event.data_content_type == 'application/json':
+    if isinstance(message_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
         try:
             message_data = json.loads(message_data)
         except json.JSONDecodeError as e:

@@ -177,10 +177,12 @@ async def broadcast_agent_update(agent_data: dict):
     
     for client_id, websocket in websocket_connections.items():
         try:
+            print(f"Coordinator: Broadcasting agent_update for agent {agent_data.get('id')} to client {client_id}")
             await websocket.send_json(message)
-        except:
+        except Exception as e:
+            print(f"Coordinator: Error sending agent_update to client {client_id}: {e}")
             # Handle potential errors during send, e.g., client disconnected
-            pass
+            pass # Keep pass to avoid breaking connection list iteration
 
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
@@ -262,7 +264,7 @@ async def publish_chat_message(sender_id: str, content: str):
 async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle job completion events"""
     job_data = event.data
-    if isinstance(job_data, str) and event.data_content_type == 'application/json':
+    if isinstance(job_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
         try:
             job_data = json.loads(job_data)
         except json.JSONDecodeError as e:
@@ -283,7 +285,7 @@ async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
 async def handle_incoming_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages from pub/sub and broadcast to WebSocket clients."""
     chat_data = event.data
-    if isinstance(chat_data, str) and event.data_content_type == 'application/json':
+    if isinstance(chat_data, str) and (event.data_content_type and 'application/json' in event.data_content_type.lower()):
         try:
             chat_data = json.loads(chat_data)
         except json.JSONDecodeError as e:
