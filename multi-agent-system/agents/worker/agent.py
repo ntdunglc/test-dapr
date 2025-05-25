@@ -5,12 +5,13 @@ from pydantic import BaseModel, Field # Added Field
 from typing import Any, Optional # Added Any, Optional
 import json
 import time
+import os # Added for API key check
 import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
-from adk.agents import Agent
-from adk.core import InferenceContext, InferenceRequest, InferenceResponse, StandardInput, StandardOutput
+from google.adk.agents import LlmAgent # Changed from Agent to LlmAgent
+from google.adk.core import InferenceContext, InferenceRequest, InferenceResponse # StandardInput/Output not directly used by LlmAgent.invoke
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -43,18 +44,19 @@ class CustomTopicEvent(BaseModel):
     Type: Optional[str] = Field(default=None, alias="Type")
 
 
-# Define a simple ADK Agent
-class MyCustomAdkEchoAgent(Agent[StandardInput, StandardOutput]): # Renamed class
-    def infer(
-        self, request: InferenceRequest[StandardInput], context: InferenceContext
-    ) -> InferenceResponse[StandardOutput]:
-        input_text = request.data.text if request.data else ""
-        # Simple logic: reverse the input text and add a prefix
-        output_text = f"ADK Echo: {input_text[::-1]}"
-        return InferenceResponse(data=StandardOutput(text=output_text))
+# Define an ADK LlmAgent based on the provided documentation
+class AdkLlmGreeterAgent(LlmAgent):
+    def __init__(self, name: str = "AdkLlmGreeterAgent", model: str = "gemini-1.5-flash-latest"): # Updated model name
+        super().__init__(
+            name=name,
+            description="An ADK agent that greets or answers questions using an LLM.",
+            instruction="You are a friendly and helpful agent. If given a name, greet the person warmly. If asked a question, provide a concise and accurate answer. If the question is complex, you can say you need more time or tools.",
+            model=model
+        )
+        # The LlmAgent initializes its LLM client if an API key is available.
 
-# Instantiate the ADK agent as root_agent, following ADK Quickstart pattern
-root_agent = MyCustomAdkEchoAgent()
+# Note: We are not creating a global root_agent instance here for AdkLlmGreeterAgent.
+# It will be instantiated on demand within handle_chat_message to allow runtime API key check.
 
 
 async def _register_with_coordinator(): # Renamed and made internal
@@ -253,18 +255,27 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         content_for_adk = original_content.replace("@adk", "").strip()
         
         try:
-            # Use the global root_agent instance
-            adk_request = InferenceRequest(data=StandardInput(text=content_for_adk))
-            # ADK's infer method is synchronous, run it in a thread pool
-            adk_response = await asyncio.to_thread(
-                root_agent.infer, # Use root_agent
-                adk_request, 
-                InferenceContext() # Default context
-            )
-            adk_reply_text = adk_response.data.text if adk_response.data else "ADK processed, but no text output."
+            api_key = os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                print(f"Worker ({AGENT_ID}): GOOGLE_API_KEY not set. ADK LLM agent cannot be invoked.")
+                adk_reply_text = "ADK LLM Agent requires GOOGLE_API_KEY to be set."
+            else:
+                # Create instance here to ensure it picks up the env var if set at runtime
+                adk_llm_agent_instance = AdkLlmGreeterAgent()
+                print(f"Worker ({AGENT_ID}): Invoking ADK LLM agent '{adk_llm_agent_instance.name}' with input: '{content_for_adk}'")
 
+                # Invoke the ADK LlmAgent
+                # The LlmAgent's invoke method is async
+                adk_response_payload_dict = await adk_llm_agent_instance.invoke({"text": content_for_adk})
+                
+                if isinstance(adk_response_payload_dict, dict) and "text" in adk_response_payload_dict:
+                    adk_reply_text = adk_response_payload_dict["text"]
+                else:
+                    print(f"Worker ({AGENT_ID}): Unexpected ADK response structure: {adk_response_payload_dict}")
+                    adk_reply_text = f"ADK LLM processed, but response format was unexpected: {str(adk_response_payload_dict)[:100]}"
+            
             response_payload = {
-                "sender_id": AGENT_ID, # Or a more specific ADK agent ID if we had one
+                "sender_id": AGENT_ID, 
                 "content": f"{adk_reply_text} (session: {incoming_session_id[:6]})",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
