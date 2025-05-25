@@ -60,6 +60,9 @@ class Session(BaseModel):
     created_at: datetime
     last_activity: datetime
 
+class CreateSessionRequest(BaseModel):
+    user_id: Optional[str] = "anonymous"
+
 # WebSocket connections
 websocket_connections: Dict[str, WebSocket] = {}
 
@@ -133,13 +136,13 @@ async def get_registered_agents():
     return list(registered_agents_cache.values())
 
 # Session Management
-@app.post("/sessions/create")
-async def create_session(user_id: Optional[str] = "anonymous"): # user_id is now optional
+@app.post("/sessions/create", response_model=Session) # Ensure response_model is Session
+async def create_session(request_data: CreateSessionRequest): # Use the request model
     """Create a new user session"""
     session_id = str(uuid.uuid4())
     session = Session(
         id=session_id,
-        user_id=user_id, # Will use "anonymous" if not provided
+        user_id=request_data.user_id, # Use user_id from request body
         created_at=datetime.now(),
         last_activity=datetime.now()
     )

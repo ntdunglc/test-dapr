@@ -1,7 +1,17 @@
 let ws = null;
-const clientId = Math.random().toString(36).substring(7);
+const clientId = Math.random().toString(36).substring(7); // This is for WebSocket client_id, distinct from persistent userId
 let currentSessionId = null;
 let knownSessions = {}; // Store as { id: "uuid", name: "Chat YYYY-MM-DD HH:MM", timestamp: date }
+let persistentUserId = null;
+
+function getOrSetUserId() {
+    let userId = localStorage.getItem('persistentUserId');
+    if (!userId) {
+        userId = `user-${Math.random().toString(36).substring(2, 9)}`; // Generate a simple user ID
+        localStorage.setItem('persistentUserId', userId);
+    }
+    return userId;
+}
 
 // Initialize WebSocket connection
 function initWebSocket() {
@@ -69,6 +79,9 @@ async function loadInitialData() {
 }
 
 async function initializeApp() {
+    persistentUserId = getOrSetUserId();
+    document.getElementById('user-info').textContent = `User ID: ${persistentUserId}`;
+
     loadInitialData(); // For agents and jobs
     loadSessionsFromLocalStorage();
     renderSessionList();
@@ -109,14 +122,21 @@ function loadSessionsFromLocalStorage() {
 
 async function createNewSession() {
     try {
-        const response = await fetch('/sessions/create', { method: 'POST' });
+        const response = await fetch('/sessions/create', { 
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ user_id: persistentUserId }) // Send persistentUserId
+        });
         if (response.ok) {
             const session = await response.json();
             const sessionName = `Chat ${new Date(session.created_at).toLocaleDateString()} ${new Date(session.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
             knownSessions[session.id] = { 
                 id: session.id, 
                 name: sessionName, 
-                timestamp: session.created_at 
+                timestamp: session.created_at,
+                user_id: session.user_id // Store user_id with session if needed for display
             };
             saveSessionsToLocalStorage();
             renderSessionList();
