@@ -62,6 +62,12 @@ Follow these steps from the root directory of the `multi-agent-system` project.
     ```
     *Note: If you encounter issues with `pydantic-core` during installation, especially on newer Python versions or specific OS/architectures, you might need to ensure you have Rust/Cargo installed or try an older compatible version of `pydantic` or related libraries.*
 
+    **Important for ADK LLM Agent:** If you intend to use the `@adk` command in chat (which invokes an LLM-based ADK agent in the `echo_worker`), you must set the `GOOGLE_API_KEY` environment variable. You can obtain a key from [Google AI Studio](https://aistudio.google.com/apikey). Set it in the terminal where you run `dapr run -f .`:
+    ```bash
+    export GOOGLE_API_KEY="YOUR_API_KEY_HERE" 
+    ```
+    Replace `YOUR_API_KEY_HERE` with your actual key. Without this, the ADK LLM agent will not be able to make calls to the Gemini model.
+
 2.  **Start Dapr Applications:**
     Use the Dapr CLI to run all defined applications (coordinator, echo_worker, chat) as specified in `dapr.yaml`. Execute this command from the `multi-agent-system` root directory:
     ```bash
