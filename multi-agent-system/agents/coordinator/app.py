@@ -55,7 +55,7 @@ class Job(BaseModel):
 
 class Session(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = "anonymous" # Made user_id optional with a default
     agents: List[str] = []
     created_at: datetime
     last_activity: datetime
@@ -134,23 +134,81 @@ async def get_registered_agents():
 
 # Session Management
 @app.post("/sessions/create")
-async def create_session(user_id: str):
+async def create_session(user_id: Optional[str] = "anonymous"): # user_id is now optional
     """Create a new user session"""
+    session_id = str(uuid.uuid4())
     session = Session(
-        id=str(uuid.uuid4()),
-        user_id=user_id,
+        id=session_id,
+        user_id=user_id, # Will use "anonymous" if not provided
         created_at=datetime.now(),
         last_activity=datetime.now()
     )
     
-    # Save session state
+    # Save session state (optional, as chat agent manages conversation state)
+    # For now, let's save it to have a record of created sessions by the coordinator
     await dapr_client.save_state(
         store_name="statestore",
-        key=f"session-{session.id}",
+        key=f"coordinator-session-{session.id}", # Prefixed to distinguish from chat agent's conversation state
         value=session.model_dump_json()
     )
     
-    return {"session_id": session.id}
+    return session # Return the full session object
+
+@app.get("/api/sessions")
+async def get_sessions():
+    """List all chat session IDs by looking at chat agent's conversation states."""
+    # This queries for keys created by the chat agent: conversation-<session_id>
+    # A more robust way might involve the chat agent explicitly registering sessions,
+    # or the coordinator maintaining its own list of session IDs it has created.
+    # For now, we infer from chat agent's state.
+    query = {
+        "filter": {
+            "EQ": {"key": "conversation-*"} # This filter might not be supported by all state stores or Dapr query APIs directly.
+                                         # A simpler approach is to list all keys and filter client-side,
+                                         # or use a specific query if supported.
+                                         # Dapr Python SDK get_bulk_state doesn't support wildcard keys.
+                                         # We'll have to rely on the coordinator's own created sessions for now,
+                                         # or assume the chat agent creates a 'conversation-global' if no session is active.
+                                         # Let's list sessions created by the coordinator for now.
+        }
+    }
+    # Due to Dapr state query limitations for general key patterns without specific query capabilities in SDK,
+    # we will list sessions that the coordinator itself has created and stored.
+    # This means only sessions explicitly created via /sessions/create will be listed.
+    # A more advanced solution would be needed for a truly comprehensive list from chat-agent state.
+
+    # For simplicity, let's assume we list sessions the coordinator has created.
+    # This requires storing session IDs in a list or querying for "coordinator-session-*"
+    # Let's refine this to query for "coordinator-session-*" keys.
+    # However, Dapr SDK's get_bulk_state doesn't support wildcard key fetching.
+    # And query_state is for specific query languages (e.g. JSON query for Redis).
+
+    # Simplification: We will return sessions from the coordinator's in-memory cache of created sessions
+    # This is not robust across coordinator restarts.
+    # A better approach would be to store a list of session_ids in the state store.
+    # For now, let's return an empty list, as implementing robust session listing from state store
+    # without proper query support or a dedicated list is complex.
+    # The UI will create sessions and can store them locally.
+    # Let's return sessions from the coordinator's state store if we stored them with a specific prefix.
+    
+    # Given the constraints, the most straightforward way to list sessions created by the coordinator
+    # is if we had a dedicated list in the state store. Since we don't,
+    # and querying by prefix is not directly supported by get_bulk_state,
+    # this endpoint will be hard to implement robustly without further changes to how sessions are tracked.
+
+    # Let's assume for now that the UI will manage its known sessions,
+    # and this endpoint can be a placeholder or enhanced later.
+    # For a first pass, we can return sessions stored by the coordinator.
+    # This requires iterating through all keys, which is not efficient or directly supported.
+
+    # Fallback: Return an empty list. The UI will create sessions and can manage them.
+    # This part needs a more robust design for production.
+    # For this exercise, we'll return an empty list and let the UI drive session creation and local tracking.
+    # The chat agent will still store history per session_id it receives.
+    # The UI will need to remember the session IDs it creates.
+    print("Warning: /api/sessions currently returns an empty list. UI should manage its own session IDs.")
+    return []
+
 
 # Job Management
 @app.post("/jobs/submit")
@@ -225,9 +283,15 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             message = json.loads(data)
             
             if message["type"] == "chat":
-                # Publish chat message
-                await publish_chat_message(client_id, message["content"])
-    except:
+                # Expect session_id in chat messages from client
+                session_id = message.get("session_id")
+                content = message.get("content")
+                if session_id and content:
+                    await publish_chat_message(sender_id=client_id, content=content, session_id=session_id)
+                else:
+                    print(f"Coordinator: Received chat message without session_id or content from {client_id}")
+    except Exception as e:
+        print(f"Coordinator: WebSocket error for client {client_id}: {e}")
         pass
     finally:
         del websocket_connections[client_id]
@@ -259,14 +323,16 @@ async def broadcast_chat_message_to_clients(chat_message_data: dict):
             print(f"Error sending chat message to client {client_id}: {e}")
             # Potentially remove dead connections from websocket_connections here
 
-async def publish_chat_message(sender_id: str, content: str):
-    """Publish chat message to all agents"""
+async def publish_chat_message(sender_id: str, content: str, session_id: str): # Added session_id
+    """Publish chat message to all agents, including session_id"""
     message = {
         "sender_id": sender_id,
         "content": content,
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "session_id": session_id # Include session_id in the published message
     }
     
+    print(f"Coordinator: Publishing chat message to Dapr: {message}")
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="chat-messages",

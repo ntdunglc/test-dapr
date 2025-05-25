@@ -210,13 +210,21 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         return {"status": "DROP", "error": "chat_data not a dictionary"}
     
     # Process message and potentially respond
-    if "help" in message_data["content"].lower():
-        response = { # Ensure this response structure matches what subscribers expect
+    if "help" in message_data.get("content", "").lower():
+        incoming_session_id = message_data.get("session_id") # Get session_id from incoming message
+        if not incoming_session_id:
+            print(f"Worker ({AGENT_ID}): Received help request without session_id. Cannot reply specifically.")
+            # Optionally, could reply to a 'global' or default session, or not reply.
+            return {"status": "DROP", "error": "missing session_id in help request"}
+
+        response = {
             "sender_id": AGENT_ID,
-            "content": f"{AGENT_NAME} here. How can I assist?",
-            "timestamp": datetime.now().isoformat()
+            "content": f"{AGENT_NAME} here. How can I assist (session: {incoming_session_id[:6]})?",
+            "timestamp": datetime.now().isoformat(),
+            "session_id": incoming_session_id # Include session_id in the response
         }
         
+        print(f"Worker ({AGENT_ID}): Sending help reply: {response}")
         await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
