@@ -39,14 +39,14 @@ function handleMessage(message) {
 // Load initial data
 async function loadInitialData() {
     // Load agents
-    const agentsResponse = await fetch('/api/agents');
-    const agents = await agentsResponse.json();
-    agents.forEach(agent => updateAgentDisplay(agent));
+    // const agentsResponse = await fetch('/api/agents'); // Endpoint not yet implemented
+    // const agents = await agentsResponse.json();
+    // agents.forEach(agent => updateAgentDisplay(agent));
     
     // Load recent jobs
-    const jobsResponse = await fetch('/api/jobs/recent');
-    const jobs = await jobsResponse.json();
-    jobs.forEach(job => updateJobDisplay(job));
+    // const jobsResponse = await fetch('/api/jobs/recent'); // Endpoint not yet implemented
+    // const jobs = await jobsResponse.json();
+    // jobs.forEach(job => updateJobDisplay(job));
     
     // Load chat history
     const chatResponse = await fetch('/api/chat/history/global');

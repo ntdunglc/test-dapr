@@ -12,8 +12,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request: Request):
     async with httpx.AsyncClient() as client:
-        # Forward request to coordinator's application port
-        url = f"http://localhost:8000/{path}" # Corrected to coordinator's app port
+        url: str
+        # Route chat history requests to the chat agent, others to coordinator
+        if path == "api/chat/history/global":
+            # Forward to chat agent's application port and specific endpoint
+            url = "http://localhost:8002/chat/history/global"
+        else:
+            # Forward other requests to coordinator's application port
+            url = f"http://localhost:8000/{path}"
             
         response = await client.request(
             method=request.method,
