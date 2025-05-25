@@ -23,7 +23,11 @@
                         <!-- Session items will be populated here -->
                     </ul>
                 </div>
-                {/* Jobs panel will be moved here from main-content */}
+                <div class="panel" id="jobs-panel"> {/* Jobs panel moved here */}
+                    <h2>Jobs</h2>
+                    <button onclick="openSubmitJobModal()">Submit New Job</button>
+                    <ul id="jobs-list"></ul>
+                </div>
             </div>
 
             <!-- Main Content Area -->
@@ -36,13 +40,6 @@
                     </div>
                     
                     {/* Job Queue panel is moved to the sidebar */}
-
-                    <!-- Job Queue (Moved to Sidebar) -->
-                    <div class="panel" id="jobs-panel">
-                        <h2>Jobs</h2>
-                        <button onclick="openSubmitJobModal()">Submit New Job</button>
-                        <ul id="jobs-list"></ul>
-                    </div>
 
                     <!-- Job Submission Modal -->
                     <div id="job-modal" class="modal">
