@@ -107,7 +107,7 @@ async function loadInitialData() {
     }
     
     // Chat history will be loaded by switchSession or createNewSession
-// Removed extra closing brace here by ending the SEARCH block before it and not including it in REPLACE
+} // Added missing closing brace for loadInitialData function
 
 async function initializeApp() {
     persistentUserId = getOrSetUserId();
