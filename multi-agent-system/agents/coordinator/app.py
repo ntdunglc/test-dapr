@@ -58,17 +58,17 @@ async def register_agent(agent: Agent):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=f"agent-{agent.id}",
-        value=agent.dict()
+        value=json.dumps(agent.model_dump())
     )
     
     # Publish agent registration event
     await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="agent-events",
-        data={
+        data=json.dumps({
             "event": "agent_registered",
-            "agent": agent.dict()
-        }
+            "agent": agent.model_dump()
+        })
     )
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
@@ -88,7 +88,7 @@ async def create_session(user_id: str):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=f"session-{session.id}",
-        value=session.dict()
+        value=json.dumps(session.model_dump())
     )
     
     return {"session_id": session.id}
@@ -108,18 +108,18 @@ async def submit_job(task_type: str, payload: dict):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=f"job-{job.id}",
-        value=job.dict()
+        value=json.dumps(job.model_dump())
     )
     
     # Publish job to queue
     await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="job-queue",
-        data=job.dict()
+        data=json.dumps(job.model_dump())
     )
     
     # Notify WebSocket clients
-    await broadcast_job_update(job.dict())
+    await broadcast_job_update(job.model_dump())
     
     return {"job_id": job.id}
 
@@ -180,7 +180,7 @@ async def publish_chat_message(sender_id: str, content: str):
     await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="chat-messages",
-        data=message
+        data=json.dumps(message)
     )
 
 # Subscribe to events
@@ -193,7 +193,7 @@ async def handle_job_completed(event):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=f"job-{job_data['id']}",
-        value=job_data
+        value=json.dumps(job_data)
     )
     
     # Broadcast update

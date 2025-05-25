@@ -47,7 +47,7 @@ async def process_job(event):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=f"job-{job_data['id']}",
-        value=job_data
+        value=json.dumps(job_data)
     )
     
     # Simulate job processing
@@ -62,7 +62,7 @@ async def process_job(event):
     await dapr_client.publish_event_async(
         pubsub_name="pubsub",
         topic_name="job-completed",
-        data=job_data
+        data=json.dumps(job_data)
     )
     
     return {"success": True}
@@ -109,7 +109,7 @@ async def handle_chat_message(event):
         await dapr_client.publish_event_async(
             pubsub_name="pubsub",
             topic_name="chat-messages",
-            data=response
+            data=json.dumps(response)
         )
 
 # Heartbeat
@@ -124,7 +124,7 @@ async def send_heartbeat():
         await dapr_client.save_state_async(
             store_name="statestore",
             key=f"agent-{AGENT_ID}",
-            value=agent_data,
+            value=json.dumps(agent_data),
             state_metadata={"merge": "true"}
         )
         

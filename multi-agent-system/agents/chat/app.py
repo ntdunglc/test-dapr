@@ -22,7 +22,7 @@ async def store_chat_message(event):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=timestamp_key,
-        value=message
+        value=json.dumps(message)
     )
     
     # Update conversation history
@@ -44,7 +44,7 @@ async def store_chat_message(event):
     await dapr_client.save_state_async(
         store_name="statestore",
         key=conversation_key,
-        value=conversation
+        value=json.dumps(conversation)
     )
     
     return {"success": True}
