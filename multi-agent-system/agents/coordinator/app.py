@@ -63,6 +63,11 @@ class Session(BaseModel):
 # WebSocket connections
 websocket_connections: Dict[str, WebSocket] = {}
 
+# In-memory cache for registered agents
+# Note: This cache is not persistent across coordinator restarts.
+# For persistence, a more robust solution would involve querying/indexing the state store.
+registered_agents_cache: Dict[str, Agent] = {}
+
 
 # Custom TopicEvent model to make 'route' field optional
 class CustomTopicEvent(BaseModel):
@@ -114,8 +119,16 @@ async def register_agent(agent: Agent):
 
     # Notify WebSocket clients about the new agent
     await broadcast_agent_update(agent.model_dump(mode='json'))
+
+    # Add to in-memory cache
+    registered_agents_cache[agent.id] = agent
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
+
+@app.get("/agents", response_model=List[Agent])
+async def get_registered_agents():
+    """Get a list of currently registered agents (from in-memory cache)."""
+    return list(registered_agents_cache.values())
 
 # Session Management
 @app.post("/sessions/create")

@@ -39,9 +39,17 @@ function handleMessage(message) {
 // Load initial data
 async function loadInitialData() {
     // Load agents
-    // const agentsResponse = await fetch('/api/agents'); // Endpoint not yet implemented
-    // const agents = await agentsResponse.json();
-    // agents.forEach(agent => updateAgentDisplay(agent));
+    try {
+        const agentsResponse = await fetch('/api/agents'); // Path will be proxied by web-ui/server.py
+        if (agentsResponse.ok) {
+            const agents = await agentsResponse.json();
+            agents.forEach(agent => updateAgentDisplay(agent));
+        } else {
+            console.error("Failed to load agents:", agentsResponse.status, await agentsResponse.text());
+        }
+    } catch (error) {
+        console.error("Error fetching agents:", error);
+    }
     
     // Load recent jobs
     // const jobsResponse = await fetch('/api/jobs/recent'); // Endpoint not yet implemented
