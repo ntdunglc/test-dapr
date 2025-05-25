@@ -245,6 +245,12 @@ async def publish_chat_message(sender_id: str, content: str):
 async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle job completion events"""
     job_data = event.data
+    if isinstance(job_data, str) and event.data_content_type == 'application/json':
+        try:
+            job_data = json.loads(job_data)
+        except json.JSONDecodeError as e:
+            print(f"Coordinator: Failed to decode JSON job_data: {e}. Data: {event.data}")
+            return {"status": "DROP"} # Or RETRY, depending on desired behavior
     
     # Update job state
     await dapr_client.save_state(
@@ -259,7 +265,14 @@ async def handle_job_completed(event: CustomTopicEvent): # Use CustomTopicEvent
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def handle_incoming_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages from pub/sub and broadcast to WebSocket clients."""
-    chat_data = event.data # This is already a dict
+    chat_data = event.data
+    if isinstance(chat_data, str) and event.data_content_type == 'application/json':
+        try:
+            chat_data = json.loads(chat_data)
+        except json.JSONDecodeError as e:
+            print(f"Coordinator: Failed to decode JSON chat_data: {e}. Data: {event.data}")
+            return {"status": "DROP"} # Or RETRY
+    
     print(f"Coordinator received chat message from pub/sub: {chat_data}")
     await broadcast_chat_message_to_clients(chat_data)
 

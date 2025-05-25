@@ -56,18 +56,24 @@ class CustomTopicEvent(BaseModel):
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Store chat messages in state store"""
-    message = event.data
+    message_data = event.data
+    if isinstance(message_data, str) and event.data_content_type == 'application/json':
+        try:
+            message_data = json.loads(message_data)
+        except json.JSONDecodeError as e:
+            print(f"Chat: Failed to decode JSON message_data: {e}. Data: {event.data}")
+            return {"status": "DROP"} # Or RETRY
     
     # Store message with timestamp key
-    timestamp_key = f"chat-{message['timestamp']}"
+    timestamp_key = f"chat-{message_data['timestamp']}"
     await dapr_client.save_state(
         store_name="statestore",
         key=timestamp_key,
-        value=json.dumps(message)
+        value=json.dumps(message_data) # Save the (potentially parsed) dict as JSON
     )
     
     # Update conversation history
-    conversation_key = f"conversation-{message.get('session_id', 'global')}"
+    conversation_key = f"conversation-{message_data.get('session_id', 'global')}"
     
     # Get existing conversation
     state = await dapr_client.get_state(
@@ -76,7 +82,7 @@ async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     )
     
     conversation = json.loads(state.data) if state.data else {"messages": []}
-    conversation["messages"].append(message)
+    conversation["messages"].append(message_data) # Append the dict
     
     # Keep only last 100 messages
     if len(conversation["messages"]) > 100:

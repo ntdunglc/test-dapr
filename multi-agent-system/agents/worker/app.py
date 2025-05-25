@@ -129,6 +129,12 @@ dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
 async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     """Process incoming jobs"""
     job_data = event.data
+    if isinstance(job_data, str) and event.data_content_type == 'application/json':
+        try:
+            job_data = json.loads(job_data)
+        except json.JSONDecodeError as e:
+            print(f"Worker: Failed to decode JSON job_data: {e}. Data: {event.data}")
+            return {"status": "DROP"} # Or RETRY
     
     print(f"Received job: {job_data['id']}")
     
@@ -163,12 +169,19 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     """Handle incoming chat messages"""
-    message = event.data
-    print(f"Chat message from {message['sender_id']}: {message['content']}")
+    message_data = event.data
+    if isinstance(message_data, str) and event.data_content_type == 'application/json':
+        try:
+            message_data = json.loads(message_data)
+        except json.JSONDecodeError as e:
+            print(f"Worker: Failed to decode JSON message_data: {e}. Data: {event.data}")
+            return {"status": "DROP"} # Or RETRY
+
+    print(f"Chat message from {message_data['sender_id']}: {message_data['content']}")
     
     # Process message and potentially respond
-    if "help" in message["content"].lower():
-        response = {
+    if "help" in message_data["content"].lower():
+        response = { # Ensure this response structure matches what subscribers expect
             "sender_id": AGENT_ID,
             "content": f"{AGENT_NAME} here. How can I assist?",
             "timestamp": datetime.now().isoformat()
