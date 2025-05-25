@@ -4,6 +4,7 @@ from dapr.ext.fastapi import DaprApp
 from pydantic import BaseModel, Field # Added Field
 from typing import Any, Optional # Added Any, Optional
 import json
+import uuid # For default message ID
 from datetime import datetime
 from contextlib import asynccontextmanager
 
@@ -26,7 +27,19 @@ dapr_app = DaprApp(app)
 
 AGENT_ID = "chat-agent"
 AGENT_NAME = "Chat Coordinator"
+STATE_STORE_NAME = "statestore" # Define state store name for consistency
 
+# Define a richer Pydantic model for chat messages stored by this agent
+class AppChatMessage(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    session_id: str # The actual session ID (e.g., UUID from coordinator)
+    sender_id: str
+    role: str # 'user' or 'assistant' typically for chat, or agent name
+    content: str
+    timestamp: str = Field(default_factory=lambda: datetime.now().isoformat() + "Z")
+    # Add any other fields you need, e.g., active_agent_id if relevant at message level
+    active_agent_id: Optional[str] = None
+    # Ensure all fields that need to be serialized properly (like datetime) are handled
 
 # Custom TopicEvent model to make 'route' field optional
 class CustomTopicEvent(BaseModel):
@@ -55,12 +68,15 @@ class CustomTopicEvent(BaseModel):
 # Message history storage
 @dapr_app.subscribe(pubsub="pubsub", topic="chat-messages")
 async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
-    """Store chat messages in state store"""
+    """Store chat messages in state store as a list of rich message objects."""
+    if not dapr_client:
+        print("Chat Agent: Dapr client not initialized. Dropping message.")
+        return {"status": "DROP", "error": "Dapr client not initialized"}
+
     print(f"Chat Agent: Received chat event. Raw event.data type: {type(event.data)}, content_type: {event.data_content_type}")
     message_data = event.data
 
     if isinstance(message_data, str):
-        # If data is a string, attempt to parse it as JSON.
         print(f"Chat Agent: event.data is a string. Attempting json.loads on: {repr(message_data)}")
         try:
             message_data = json.loads(message_data)
@@ -69,64 +85,101 @@ async def store_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
             print(f"Chat Agent: Failed to decode JSON from string event.data: {e}. Original data: {repr(event.data)}")
             return {"status": "DROP", "error": "event.data string is not valid JSON"}
     elif not isinstance(message_data, dict):
-        # If it's not a string and not a dict, it's an unexpected type.
         print(f"Chat Agent: event.data is neither a string nor a dict. Type: {type(message_data)}. Value: {repr(message_data)}")
         return {"status": "DROP", "error": "event.data has unexpected type"}
     
     # At this point, message_data should be a dict.
-    # Store message with timestamp key
     try:
-        timestamp_key = f"chat-{message_data['timestamp']}"
-    except KeyError:
-        print(f"Chat Agent: 'timestamp' key missing in message_data. Data: {repr(message_data)}")
-        return {"status": "DROP", "error": "missing 'timestamp' in message_data"}
-    except TypeError: # If message_data is not a dict (e.g. list, or other non-subscriptable type)
-        print(f"Chat Agent: message_data is not a dictionary, cannot access 'timestamp'. Data: {repr(message_data)}")
-        return {"status": "DROP", "error": "message_data not a dictionary"}
-    await dapr_client.save_state(
-        store_name="statestore",
-        key=timestamp_key,
-        value=json.dumps(message_data) # Save the (potentially parsed) dict as JSON
-    )
-    
-    # Update conversation history
-    conversation_key = f"conversation-{message_data.get('session_id', 'global')}"
-    
-    # Get existing conversation
-    state = await dapr_client.get_state(
-        store_name="statestore",
-        key=conversation_key
-    )
-    
-    conversation = json.loads(state.data) if state.data else {"messages": []}
-    conversation["messages"].append(message_data) # Append the dict
-    
-    # Keep only last 100 messages
-    if len(conversation["messages"]) > 100:
-        conversation["messages"] = conversation["messages"][-100:]
-    
-    await dapr_client.save_state(
-        store_name="statestore",
-        key=conversation_key,
-        value=json.dumps(conversation)
-    )
-    
-    return {"success": True}
+        actual_session_id = message_data.get("session_id")
+        sender_id = message_data.get("sender_id")
+        content = message_data.get("content")
+        timestamp = message_data.get("timestamp", datetime.now().isoformat() + "Z")
+        active_agent_id = message_data.get("active_agent_id")
+
+        if not actual_session_id or not sender_id or content is None:
+            print(f"Chat Agent: Missing required fields (session_id, sender_id, content) in message_data: {message_data}")
+            return {"status": "DROP", "error": "Missing required fields in message_data"}
+
+        role = "user" 
+        if sender_id == AGENT_ID:
+            role = "assistant"
+        elif sender_id and (not sender_id.startswith("user-") and sender_id != "UI"):
+            role = sender_id
+
+        new_message_obj = AppChatMessage(
+            session_id=actual_session_id,
+            sender_id=sender_id,
+            role=role,
+            content=content,
+            timestamp=timestamp,
+            active_agent_id=active_agent_id
+        )
+        new_message_dict = new_message_obj.model_dump(mode="json")
+
+        conversation_key = f"conversation-{actual_session_id}"
+        
+        state = await dapr_client.get_state(store_name=STATE_STORE_NAME, key=conversation_key)
+        current_messages = []
+        if state.data:
+            try:
+                current_messages = json.loads(state.data)
+            except json.JSONDecodeError:
+                print(f"Chat Agent: Failed to decode existing state for {conversation_key}. Re-initializing list.")
+                current_messages = []
+        
+        if not isinstance(current_messages, list):
+            print(f"Chat Agent: Data for key {conversation_key} is not a list (type: {type(current_messages)}). Re-initializing list.")
+            current_messages = []
+
+        current_messages.append(new_message_dict)
+        
+        if len(current_messages) > 100: # Keep only last 100 messages
+            current_messages = current_messages[-100:]
+        
+        await dapr_client.save_state(
+            store_name=STATE_STORE_NAME,
+            key=conversation_key,
+            value=json.dumps(current_messages)
+        )
+        print(f"Chat Agent: Stored/updated message list for session {actual_session_id} under key {conversation_key}")
+        return {"status": "SUCCESS"}
+    except Exception as e:
+        print(f"Chat Agent: Error processing and storing chat message: {e}. Data: {message_data}")
+        return {"status": "RETRY", "error": str(e)}
 
 @app.get("/chat/history/{session_id}")
 async def get_chat_history(session_id: str):
     """Get chat history for a session"""
+    if not dapr_client:
+        print("Chat Agent: Dapr client not initialized for get_chat_history.")
+        return {"messages": [], "error": "Dapr client not initialized"}
+
     conversation_key = f"conversation-{session_id}"
     
-    state = await dapr_client.get_state(
-        store_name="statestore",
-        key=conversation_key
-    )
-    
-    if state.data:
-        return json.loads(state.data)
-    else:
-        return {"messages": []}
+    try:
+        state = await dapr_client.get_state(
+            store_name=STATE_STORE_NAME,
+            key=conversation_key
+        )
+        
+        if state.data:
+            messages_list = []
+            try:
+                messages_list = json.loads(state.data) 
+            except json.JSONDecodeError:
+                print(f"Chat Agent: Failed to decode state data for {conversation_key} in get_chat_history.")
+                return {"messages": [], "error": "Failed to decode chat history"}
+
+            if isinstance(messages_list, list):
+                return {"messages": messages_list}
+            else:
+                print(f"Chat Agent: Chat history for {conversation_key} is not a list (type: {type(messages_list)}).")
+                return {"messages": [], "error": "Chat history format error"}
+        else:
+            return {"messages": []} 
+    except Exception as e:
+        print(f"Chat Agent: Error retrieving history for session {session_id} (key {conversation_key}): {e}")
+        return {"messages": [], "error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
