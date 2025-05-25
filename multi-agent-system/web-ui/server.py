@@ -12,11 +12,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def proxy(path: str, request):
     async with httpx.AsyncClient() as client:
-        # Forward request to coordinator's Dapr sidecar
-        # The coordinator's Dapr sidecar typically listens on port 3500 when started with `dapr run -f .`
-        # The path is then forwarded to the coordinator app.
-        url = f"http://localhost:3500/{path}"
-        
+        # Forward request to coordinator's application port
+        url = f"http://localhost:8000/{path}" # Corrected to coordinator's app port
+            
         response = await client.request(
             method=request.method,
             url=url,

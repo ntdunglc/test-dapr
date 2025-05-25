@@ -64,7 +64,7 @@ async function submitJob() {
         priority: Math.random() > 0.5 ? 'high' : 'normal'
     };
     
-    const response = await fetch('/api/jobs/submit', {
+    const response = await fetch('/jobs/submit', { // Corrected path
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
