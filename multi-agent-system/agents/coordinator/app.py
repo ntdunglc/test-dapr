@@ -80,10 +80,11 @@ async def register_agent(agent: Agent):
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="agent-events",
-        data={ # Pass dictionary directly
+        data=json.dumps({ # Serialize to JSON string
             "event": "agent_registered",
             "agent": agent.model_dump(mode='json')
-        }
+        }),
+        data_content_type="application/json" # Specify content type
     )
     
     return {"message": "Agent registered successfully", "agent_id": agent.id}
@@ -130,7 +131,8 @@ async def submit_job(task_type: str, payload: dict):
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="job-queue",
-        data=job.model_dump(mode='json') # Pass dictionary directly
+        data=json.dumps(job.model_dump(mode='json')), # Serialize to JSON string
+        data_content_type="application/json" # Specify content type
     )
     
     # Notify WebSocket clients
@@ -209,7 +211,8 @@ async def publish_chat_message(sender_id: str, content: str):
     await dapr_client.publish_event(
         pubsub_name="pubsub",
         topic_name="chat-messages",
-        data=message # Pass dictionary directly
+        data=json.dumps(message), # Serialize to JSON string
+        data_content_type="application/json" # Specify content type
     )
 
 # Subscribe to events
