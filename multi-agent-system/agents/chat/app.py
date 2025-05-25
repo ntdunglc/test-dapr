@@ -1,12 +1,26 @@
 from fastapi import FastAPI
-from dapr.aio.clients import DaprClient # Changed to async client
+from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
 import json
 from datetime import datetime
+from contextlib import asynccontextmanager # Added
 
-app = FastAPI()
+# Global Dapr client, to be initialized in lifespan
+dapr_client: DaprClient = None # type: ignore
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global dapr_client
+    dapr_client = DaprClient()
+    print("Chat DaprClient initialized in lifespan")
+    yield
+    if dapr_client:
+        print("Chat Closing DaprClient in lifespan")
+        await dapr_client.close()
+    dapr_client = None # type: ignore
+
+app = FastAPI(lifespan=lifespan)
 dapr_app = DaprApp(app)
-dapr_client = DaprClient()
 
 AGENT_ID = "chat-agent"
 AGENT_NAME = "Chat Coordinator"

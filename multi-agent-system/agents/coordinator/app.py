@@ -1,5 +1,6 @@
 from fastapi import FastAPI, WebSocket, HTTPException, Depends, Form, status
-from dapr.aio.clients import DaprClient # Changed to async client
+from contextlib import asynccontextmanager # Added
+from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
 from pydantic import BaseModel
 from typing import Dict, List, Optional
@@ -11,9 +12,23 @@ from datetime import datetime
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 
-app = FastAPI()
+# Global Dapr client, to be initialized in lifespan
+dapr_client: DaprClient = None # type: ignore
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global dapr_client
+    dapr_client = DaprClient()
+    print("Coordinator DaprClient initialized in lifespan")
+    yield
+    if dapr_client:
+        print("Coordinator Closing DaprClient in lifespan")
+        await dapr_client.close()
+    dapr_client = None # type: ignore
+
+app = FastAPI(lifespan=lifespan)
 dapr_app = DaprApp(app)
-dapr_client = DaprClient()
+
 
 # JWT Configuration
 SECRET_KEY = "your-secret-key-please-change-in-production"

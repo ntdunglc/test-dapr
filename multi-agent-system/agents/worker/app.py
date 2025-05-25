@@ -1,21 +1,19 @@
 from fastapi import FastAPI
-from dapr.aio.clients import DaprClient # Changed to async client
+from dapr.aio.clients import DaprClient
 from dapr.ext.fastapi import DaprApp
 import json
 import time
 import asyncio
 from datetime import datetime
+from contextlib import asynccontextmanager # Added
 
-app = FastAPI()
-dapr_app = DaprApp(app)
-dapr_client = DaprClient()
+# Global Dapr client, to be initialized in lifespan
+dapr_client: DaprClient = None # type: ignore
 
 AGENT_ID = "worker-1"
 AGENT_NAME = "Worker Agent 1"
 
-# Register agent on startup
-@app.on_event("startup")
-async def register_with_coordinator():
+async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
     agent_data = {
         "id": AGENT_ID,
@@ -33,6 +31,9 @@ async def register_with_coordinator():
     )
 
 # Subscribe to job queue
+# Note: DaprApp subscriptions are typically discovered at import time or when DaprApp is initialized.
+# Ensure dapr_app is initialized after 'app = FastAPI(lifespan=lifespan)' if it depends on app instance.
+
 @dapr_app.subscribe(pubsub="pubsub", topic="job-queue")
 async def process_job(event):
     """Process incoming jobs"""
@@ -130,9 +131,25 @@ async def send_heartbeat():
         
         await asyncio.sleep(30)
 
-@app.on_event("startup")
-async def start_heartbeat():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global dapr_client
+    dapr_client = DaprClient()
+    print("Worker DaprClient initialized in lifespan")
+
+    await _register_with_coordinator()
     asyncio.create_task(send_heartbeat())
+    print("Worker registration and heartbeat task started in lifespan")
+    
+    yield
+    
+    if dapr_client:
+        print("Worker Closing DaprClient in lifespan")
+        await dapr_client.close()
+    dapr_client = None # type: ignore
+
+app = FastAPI(lifespan=lifespan)
+dapr_app = DaprApp(app) # Initialize DaprApp after app is created with lifespan
 
 if __name__ == "__main__":
     import uvicorn
