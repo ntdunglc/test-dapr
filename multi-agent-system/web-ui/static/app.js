@@ -476,47 +476,47 @@ function sendMessage() {
 
 // Update displays
 function updateJobDisplay(job) {
-    const jobsList = document.getElementById('jobs-list'); // Should be a <ul>
-    let jobElement = document.getElementById(`job-${job.id}`);
+    // This function is called when a 'job_update' WebSocket message is received
+    // or when jobs are initially loaded.
+    // It updates the job's representation in the knownInteractions list.
     
-    if (!jobElement) {
-        jobElement = document.createElement('li'); // Changed to li
-        jobElement.id = `job-${job.id}`;
-        jobElement.className = 'job-item';
-        jobsList.prepend(jobElement); // Add to the top of the list
-        jobElement.onclick = () => focusJob(job.id); // Make job item clickable
-    }
-    
-    // This function is called when a 'job_update' WebSocket message is received.
-    // It needs to update the job's representation in the knownInteractions list.
-    
-    known_jobs_cache[job.id] = job; // Update the detailed job cache
+    known_jobs_cache[job.id] = job; // Update the detailed job cache for quick lookups if needed
 
-    if (knownInteractions[job.id] && knownInteractions[job.id].type === 'job') {
-        knownInteractions[job.id].originalData = job; // Update the originalData
-        knownInteractions[job.id].status = job.status; // Update status for list display
-        knownInteractions[job.id].name = `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`;
-        // Potentially update timestamp if job.updated_at exists and is relevant for sorting
-        // knownInteractions[job.id].timestamp = job.updated_at || job.created_at; 
-        renderInteractionList(); // Re-render the list to show updated status/info
+    const interactionName = `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`;
+
+    if (knownInteractions[job.id]) {
+        // Update existing job interaction
+        knownInteractions[job.id].originalData = job;
+        knownInteractions[job.id].status = job.status;
+        knownInteractions[job.id].name = interactionName;
+        // If job.updated_at exists and should affect sorting, update timestamp:
+        // knownInteractions[job.id].timestamp = job.updated_at || job.created_at;
     } else {
-        // If job wasn't in knownInteractions (e.g., loaded by another client), add it.
+        // Add new job interaction if it wasn't known (e.g., created by another client or loaded initially)
         knownInteractions[job.id] = {
             id: job.id,
             type: 'job',
-            name: `Job: ${job.payload.description ? job.payload.description.substring(0, 20) + "..." : job.id.substring(0,8)}`,
-            timestamp: job.created_at,
+            name: interactionName,
+            timestamp: job.created_at, // Use created_at for initial timestamp
             originalData: job,
             status: job.status
         };
-        renderInteractionList();
     }
+    
+    renderInteractionList(); // Re-render the entire list to reflect changes
 
-    // If the updated job is the currently focused interaction, refresh its view (e.g. title, original task if it changed)
+    // If the updated job is the currently focused interaction, refresh its view
+    // (e.g., title, original task if it changed, chat history if new messages arrived due to job update).
+    // A simple re-focus can achieve this, though it might clear and reload chat history.
     if (currentChatTarget.type === 'job' && currentChatTarget.id === job.id) {
-        // Re-focus to refresh the chat panel title and potentially the original task display
-        // This is a bit heavy-handed, could be more targeted.
-        focusInteraction(job.id, 'job'); 
+        // To avoid clearing and fully reloading chat history unnecessarily if only the job status changed in the list,
+        // we might want a more targeted update here.
+        // For now, a full re-focus is simple. If this causes UX issues (e.g., chat scroll position lost),
+        // this part can be refined.
+        // Let's update the title directly if it's the current target, and rely on chat messages for other updates.
+        document.getElementById('chat-title').textContent = `Job: ${knownInteractions[job.id].name}`;
+        // If the original task description itself could change via a job_update, that would also need handling here.
+        // For now, assuming only status and result change.
     }
 }
 
