@@ -9,6 +9,9 @@ import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 
+from adk.agents import Agent
+from adk.core import InferenceContext, InferenceRequest, InferenceResponse, StandardInput, StandardOutput
+
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
 
@@ -38,6 +41,21 @@ class CustomTopicEvent(BaseModel):
     SpecVersion: Optional[str] = Field(default=None, alias="SpecVersion")
     Topic: Optional[str] = Field(default=None, alias="Topic")
     Type: Optional[str] = Field(default=None, alias="Type")
+
+
+# Define a simple ADK Agent
+class SimpleAdkChatAgent(Agent[StandardInput, StandardOutput]):
+    def infer(
+        self, request: InferenceRequest[StandardInput], context: InferenceContext
+    ) -> InferenceResponse[StandardOutput]:
+        input_text = request.data.text if request.data else ""
+        # Simple logic: reverse the input text and add a prefix
+        output_text = f"ADK Echo: {input_text[::-1]}"
+        return InferenceResponse(data=StandardOutput(text=output_text))
+
+# Instantiate the ADK agent. For this example, we can create it on demand or keep a global instance.
+# Creating on demand is simpler for now. If it had significant setup cost, a global instance might be better.
+# adk_chat_agent = SimpleAdkChatAgent()
 
 
 async def _register_with_coordinator(): # Renamed and made internal
