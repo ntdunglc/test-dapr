@@ -229,28 +229,63 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     
     # Process message and potentially respond
     original_content = message_data.get("content", "")
+    response_payload = None
+
     if "@echo" in original_content:
         incoming_session_id = message_data.get("session_id")
         if not incoming_session_id:
             print(f"Worker ({AGENT_ID}): Received @echo request without session_id. Cannot reply specifically.")
             return {"status": "DROP", "error": "missing session_id in @echo request"}
-
-        # Remove the @echo tag and trim whitespace for the reply
         content_to_echo = original_content.replace("@echo", "").strip()
-        
-        response = {
-            "sender_id": AGENT_ID, # Will be "worker-1"
+        response_payload = {
+            "sender_id": AGENT_ID,
             "content": f"Echo: {content_to_echo} (session: {incoming_session_id[:6]})",
             "timestamp": datetime.now().isoformat(),
             "session_id": incoming_session_id
         }
+        print(f"Worker ({AGENT_ID}): Sending echo reply: {response_payload}")
+
+    elif "@adk" in original_content:
+        incoming_session_id = message_data.get("session_id")
+        if not incoming_session_id:
+            print(f"Worker ({AGENT_ID}): Received @adk request without session_id. Cannot reply specifically.")
+            return {"status": "DROP", "error": "missing session_id in @adk request"}
         
-        print(f"Worker ({AGENT_ID}): Sending echo reply: {response}")
+        content_for_adk = original_content.replace("@adk", "").strip()
+        
+        try:
+            adk_agent_instance = SimpleAdkChatAgent()
+            adk_request = InferenceRequest(data=StandardInput(text=content_for_adk))
+            # ADK's infer method is synchronous, run it in a thread pool
+            adk_response = await asyncio.to_thread(
+                adk_agent_instance.infer, 
+                adk_request, 
+                InferenceContext() # Default context
+            )
+            adk_reply_text = adk_response.data.text if adk_response.data else "ADK processed, but no text output."
+
+            response_payload = {
+                "sender_id": AGENT_ID, # Or a more specific ADK agent ID if we had one
+                "content": f"{adk_reply_text} (session: {incoming_session_id[:6]})",
+                "timestamp": datetime.now().isoformat(),
+                "session_id": incoming_session_id
+            }
+            print(f"Worker ({AGENT_ID}): Sending ADK reply: {response_payload}")
+        except Exception as e:
+            print(f"Worker ({AGENT_ID}): Error invoking ADK agent: {e}")
+            response_payload = {
+                "sender_id": AGENT_ID,
+                "content": f"Error processing @adk request. (session: {incoming_session_id[:6]})",
+                "timestamp": datetime.now().isoformat(),
+                "session_id": incoming_session_id
+            }
+
+    if response_payload:
         await dapr_client.publish_event(
             pubsub_name="pubsub",
             topic_name="chat-messages",
-            data=json.dumps(response), # Serialize to JSON string
-            data_content_type="application/json" # Specify content type
+            data=json.dumps(response_payload), 
+            data_content_type="application/json"
         )
 
 if __name__ == "__main__":
