@@ -1,5 +1,6 @@
 import asyncio
 import json
+import warnings # Add import for warnings module
 from dapr.aio.clients import DaprClient
 
 STATE_STORE_NAME = "statestore"
@@ -15,10 +16,20 @@ async def clear_all_sessions():
     Note: This does not delete individual 'chat-<timestamp>' messages if they exist
     outside the conversation history lists, as that would require scanning all keys.
     """
-    async with DaprClient() as d:
-        print(f"Attempting to clear all session data from state store: {STATE_STORE_NAME}")
+    # Suppress the specific RuntimeWarning from Dapr SDK about unawaited Channel.close.
+    # This is a known issue/behavior in some versions of the Dapr Python SDK's gRPC client.
+    # The script's core functionality is not affected; this just cleans up log output.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="coroutine 'Channel.close' was never awaited",
+            category=RuntimeWarning,
+            module="dapr.aio.clients.grpc.client"
+        )
+        async with DaprClient() as d:
+            print(f"Attempting to clear all session data from state store: {STATE_STORE_NAME}")
 
-        # 1. Fetch the list of all session IDs
+            # 1. Fetch the list of all session IDs
         all_session_ids = []
         try:
             state = await d.get_state(store_name=STATE_STORE_NAME, key=ALL_SESSIONS_LIST_KEY)
