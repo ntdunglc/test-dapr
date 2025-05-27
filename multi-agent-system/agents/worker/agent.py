@@ -168,6 +168,7 @@ async def execute_job(job_data: dict) -> dict:
                     current_user_message=description
                 )
                 
+                print(f"Worker ({AGENT_ID}): OpenAI messages for job {job_id}: {json.dumps(openai_messages, indent=2)}")
                 client = AsyncOpenAI(api_key=openai_api_key)
                 completion = await client.chat.completions.create(
                     model="gpt-3.5-turbo", # Or your preferred model
@@ -436,6 +437,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     current_user_message=content_for_llm_input
                 )
                 
+                print(f"Worker ({AGENT_ID}): OpenAI messages for session {incoming_session_id}: {json.dumps(openai_messages, indent=2)}")
                 client = AsyncOpenAI(api_key=openai_api_key)
                 completion = await client.chat.completions.create(
                     model="gpt-3.5-turbo", # Or your preferred model
