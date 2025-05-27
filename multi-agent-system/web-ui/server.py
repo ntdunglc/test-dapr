@@ -22,7 +22,7 @@ async def proxy(path: str, request: Request):
             # Extract the part after "api/" to match the chat agent's endpoint structure
             # e.g., if path is "api/chat/history/some-id", actual_chat_path becomes "chat/history/some-id"
             actual_chat_path = path[len("api/"):] 
-            url = f"http://localhost:8002/{actual_chat_path}"
+            url = f"http://localhost:8004/{actual_chat_path}"
         else:
             # Forward other requests to coordinator's application port
             url = f"http://localhost:8000/{path}"
@@ -59,4 +59,4 @@ async def proxy(path: str, request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080, debug=True)
+    uvicorn.run(app, host="0.0.0.0", port=3000, debug=True)
