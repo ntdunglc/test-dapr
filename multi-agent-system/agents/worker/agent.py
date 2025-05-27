@@ -46,6 +46,38 @@ class CustomTopicEvent(BaseModel):
 
 # DaprAgent instances are no longer used. Direct OpenAI calls will be made.
 
+STATE_STORE_NAME = "statestore" # Define state store name for consistency
+
+async def _get_openai_messages_with_history(session_id: str, system_prompt: str, current_user_message: str) -> list:
+    """
+    Constructs a list of messages for OpenAI API, including system prompt,
+    conversation history, and the current user message.
+    """
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    try:
+        conversation_key = f"conversation-{session_id}"
+        state = await dapr_client.get_state(store_name=STATE_STORE_NAME, key=conversation_key)
+        
+        if state.data:
+            try:
+                history_list = json.loads(state.data)
+                if isinstance(history_list, list):
+                    for msg_data in history_list:
+                        role = "assistant" if msg_data.get("sender_id") == AGENT_NAME else "user"
+                        content = msg_data.get("content")
+                        if content is not None: # Ensure content exists
+                            messages.append({"role": role, "content": content})
+            except json.JSONDecodeError:
+                print(f"Worker ({AGENT_ID}): Failed to decode history for session {session_id}. Proceeding without history.")
+            except Exception as e:
+                print(f"Worker ({AGENT_ID}): Error processing history for session {session_id}: {e}. Proceeding without history.")
+    except Exception as e:
+        print(f"Worker ({AGENT_ID}): Error fetching history for session {session_id}: {e}. Proceeding without history.")
+        
+    messages.append({"role": "user", "content": current_user_message})
+    return messages
+
 async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
     print(f"Worker ({AGENT_ID}): Attempting to register with coordinator.")
@@ -105,13 +137,18 @@ async def execute_job(job_data: dict) -> dict:
                 llm_response_text = "LLM requires OPENAI_API_KEY to be set."
             else:
                 print(f"Worker ({AGENT_ID}): Invoking OpenAI for job {job_id} with input: '{description}'.")
+                
+                system_prompt_for_job = "You are an AI assistant processing a job task. Provide a detailed and accurate response to the task description. The user is not directly conversing, this is an automated job execution."
+                openai_messages = await _get_openai_messages_with_history(
+                    session_id=job_id, # job_id is used as session_id for job-related conversation history
+                    system_prompt=system_prompt_for_job,
+                    current_user_message=description
+                )
+                
                 client = AsyncOpenAI(api_key=openai_api_key)
                 completion = await client.chat.completions.create(
                     model="gpt-3.5-turbo", # Or your preferred model
-                    messages=[
-                        {"role": "system", "content": "You are an AI assistant processing a job task. Provide a detailed and accurate response to the task description. The user is not directly conversing, this is an automated job execution."},
-                        {"role": "user", "content": description}
-                    ]
+                    messages=openai_messages
                 )
                 if completion.choices and completion.choices[0].message:
                     llm_response_text = completion.choices[0].message.content or "LLM returned an empty response."
@@ -368,13 +405,18 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 llm_reply_text = "LLM requires OPENAI_API_KEY to be set."
             else:
                 print(f"Worker ({AGENT_ID}): Invoking OpenAI for session {incoming_session_id} with input: '{content_for_llm_input}'.")
+                
+                system_prompt_for_chat = "You are a helpful AI assistant. Provide clear and concise answers. If you don't know the answer, say so."
+                openai_messages = await _get_openai_messages_with_history(
+                    session_id=incoming_session_id,
+                    system_prompt=system_prompt_for_chat,
+                    current_user_message=content_for_llm_input
+                )
+                
                 client = AsyncOpenAI(api_key=openai_api_key)
                 completion = await client.chat.completions.create(
                     model="gpt-3.5-turbo", # Or your preferred model
-                    messages=[
-                        {"role": "system", "content": "You are a helpful AI assistant. Provide clear and concise answers. If you don't know the answer, say so."},
-                        {"role": "user", "content": content_for_llm_input}
-                    ]
+                    messages=openai_messages
                 )
                 if completion.choices and completion.choices[0].message:
                     llm_reply_text = completion.choices[0].message.content or "LLM returned an empty response."
