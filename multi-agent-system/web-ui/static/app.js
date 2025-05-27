@@ -19,10 +19,12 @@ function getOrSetUserId() {
 
 // Initialize WebSocket connection
 function initWebSocket() {
-    ws = new WebSocket(`ws://localhost:8000/ws/${clientId}`);
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.host; // This includes hostname and port
+    ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/${clientId}`);
     
     ws.onopen = () => {
-        console.log('Connected to coordinator');
+        console.log(`Connected to coordinator at ${ws.url}`);
         initializeApp();
     };
     
