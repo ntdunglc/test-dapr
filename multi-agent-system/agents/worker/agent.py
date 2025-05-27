@@ -11,9 +11,7 @@ import traceback # Added for printing stack traces
 import re # Added for regular expression matching
 from datetime import datetime
 from contextlib import asynccontextmanager
-
-from dapr_agents import Agent as DaprAgent # For LLM functionality
-from dapr_agents.memory import ConversationDaprStateMemory # For session-specific memory
+from openai import AsyncOpenAI, APIError # Added for direct LLM calls
 
 # Global Dapr client, to be initialized in lifespan
 dapr_client: DaprClient = None # type: ignore
@@ -46,9 +44,7 @@ class CustomTopicEvent(BaseModel):
     Topic: Optional[str] = Field(default=None, alias="Topic")
     Type: Optional[str] = Field(default=None, alias="Type")
 
-# Store DaprAgent instances, keyed by chat session_id
-# Each agent will have its own memory tied to that session.
-dapr_agent_instances: dict[str, DaprAgent] = {}
+# DaprAgent instances are no longer used. Direct OpenAI calls will be made.
 
 async def _register_with_coordinator(): # Renamed and made internal
     """Register this worker with the coordinator"""
@@ -100,61 +96,38 @@ async def execute_job(job_data: dict) -> dict:
         print(f"Worker ({AGENT_ID}): Processing user_task via LLM. Description: '{description}'")
         
         llm_response_text = "LLM processing failed or was not invoked." # Default
-        job_session_id = job_data.get("id", "unknown_job_id") # Use job_id as session_id for DaprAgent memory
+        job_id = job_data.get("id", "unknown_job_id")
 
         try:
             openai_api_key = os.getenv("OPENAI_API_KEY")
             if not openai_api_key:
-                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. LLM cannot be invoked for job {job_session_id}.")
-                llm_response_text = "LLM Agent requires OPENAI_API_KEY to be set."
+                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. LLM cannot be invoked for job {job_id}.")
+                llm_response_text = "LLM requires OPENAI_API_KEY to be set."
             else:
-                if job_session_id not in dapr_agent_instances:
-                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for job-session {job_session_id}")
-                    session_memory = ConversationDaprStateMemory(
-                        store_name="statestore", 
-                        session_id=job_session_id, # Tie memory to job_id
-                        key_prefix="conversation-", # Align with chat agent's storage key
-                        dapr_client=dapr_client
-                    )
-                    agent_instance = DaprAgent(
-                        name=f"OpenAIAgentJob-{job_session_id[:6]}",
-                        role="Job Processing AI Assistant (OpenAI)",
-                        goal="Process the given task description and provide a comprehensive result.",
-                        instructions=[
-                            "You are an AI assistant processing a job task.",
-                            "Provide a detailed and accurate response to the task description.",
-                            "The user is not directly conversing, this is an automated job execution."
-                        ],
-                        memory=session_memory,
-                        tools=[], 
-                        model="gpt-3.5-turbo",
-                    )
-                    dapr_agent_instances[job_session_id] = agent_instance
+                print(f"Worker ({AGENT_ID}): Invoking OpenAI for job {job_id} with input: '{description}'.")
+                client = AsyncOpenAI(api_key=openai_api_key)
+                completion = await client.chat.completions.create(
+                    model="gpt-3.5-turbo", # Or your preferred model
+                    messages=[
+                        {"role": "system", "content": "You are an AI assistant processing a job task. Provide a detailed and accurate response to the task description. The user is not directly conversing, this is an automated job execution."},
+                        {"role": "user", "content": description}
+                    ]
+                )
+                if completion.choices and completion.choices[0].message:
+                    llm_response_text = completion.choices[0].message.content or "LLM returned an empty response."
                 else:
-                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for job-session {job_session_id}")
-                
-                current_dapr_agent = dapr_agent_instances[job_session_id]
-                print(f"Worker ({AGENT_ID}): Invoking DaprAgent for job {job_session_id} with input: '{description}'.")
-                
-                agent_response = await current_dapr_agent.run(description)
-                
-                if isinstance(agent_response, str):
-                    llm_response_text = agent_response
-                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str):
-                    llm_response_text = agent_response.content
-                else:
-                    llm_response_text = str(agent_response)
-
-                if not llm_response_text.strip():
-                    llm_response_text = "LLM agent did not return a text response for the job."
-
+                    llm_response_text = "LLM agent did not return a valid response for the job."
+        
+        except APIError as e:
+            print(f"Worker ({AGENT_ID}): OpenAI API Error for job {job_id}: {e}")
+            llm_response_text = f"OpenAI API Error: {e.message}"
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent for job {job_session_id}: {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking OpenAI LLM for job {job_id}: {e}")
             traceback.print_exc()
             llm_response_text = f"Error processing job task with LLM: {str(e)}"
 
         return {
-            "llm_response": llm_response_text, # This will be the main output
+            "llm_response": llm_response_text,
             "status_notes": f"Processed by {AGENT_NAME} ({AGENT_ID})",
             "original_task_description": description
         }
@@ -268,17 +241,11 @@ async def process_job(event: CustomTopicEvent): # Use CustomTopicEvent
     if job_data.get("task_type") == "user_task" and isinstance(result, dict) and "llm_response" in result:
         llm_chat_content = result["llm_response"]
         
-        job_session_id_for_agent = job_data['id'] # This was used as session_id for the agent
-        agent_for_job = dapr_agent_instances.get(job_session_id_for_agent)
-        
-        ai_sender_id_for_job_chat = AGENT_ID # Default
-        if agent_for_job and hasattr(agent_for_job, 'name'):
-            ai_sender_id_for_job_chat = agent_for_job.name
-        else:
-            print(f"Worker ({AGENT_ID}): Warning - DaprAgent instance for job {job_session_id_for_agent} (or its name) not found in cache when preparing chat message. Defaulting sender_id to {AGENT_ID}.")
+        # Sender ID for LLM responses is now AGENT_NAME
+        ai_sender_id_for_job_chat = AGENT_NAME 
 
         chat_payload = {
-            "sender_id": ai_sender_id_for_job_chat, # Use the specific agent's name
+            "sender_id": ai_sender_id_for_job_chat,
             "content": llm_chat_content,
             "timestamp": datetime.now().isoformat(),
             "session_id": job_data['id'] # Use job_id as session_id for the chat message
@@ -397,61 +364,45 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         try:
             openai_api_key = os.getenv("OPENAI_API_KEY")
             if not openai_api_key:
-                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. OpenAI LLM agent cannot be invoked.")
-                llm_reply_text = "LLM Agent requires OPENAI_API_KEY to be set."
+                print(f"Worker ({AGENT_ID}): OPENAI_API_KEY not set. OpenAI LLM cannot be invoked.")
+                llm_reply_text = "LLM requires OPENAI_API_KEY to be set."
             else:
-                if incoming_session_id not in dapr_agent_instances:
-                    print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for session {incoming_session_id}")
-                    session_memory = ConversationDaprStateMemory(
-                        store_name="statestore",
-                        session_id=f"conversation-{incoming_session_id}",
-                        dapr_client=dapr_client,
-                    )
-                    agent_instance = DaprAgent(
-                        name=f"OpenAIAgentSession-{incoming_session_id[:6]}",
-                        role="Conversational AI Assistant (OpenAI)",
-                        goal="Assist users with their queries accurately and concisely using OpenAI.",
-                        instructions=[
-                            "You are a helpful AI assistant powered by OpenAI.",
-                            "Provide clear and concise answers.",
-                            "If you don't know the answer, say so."
-                        ],
-                        memory=session_memory,
-                        tools=[], 
-                        model="gpt-3.5-turbo",
-                    )
-                    dapr_agent_instances[incoming_session_id] = agent_instance
+                print(f"Worker ({AGENT_ID}): Invoking OpenAI for session {incoming_session_id} with input: '{content_for_llm_input}'.")
+                client = AsyncOpenAI(api_key=openai_api_key)
+                completion = await client.chat.completions.create(
+                    model="gpt-3.5-turbo", # Or your preferred model
+                    messages=[
+                        {"role": "system", "content": "You are a helpful AI assistant. Provide clear and concise answers. If you don't know the answer, say so."},
+                        {"role": "user", "content": content_for_llm_input}
+                    ]
+                )
+                if completion.choices and completion.choices[0].message:
+                    llm_reply_text = completion.choices[0].message.content or "LLM returned an empty response."
                 else:
-                    print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for session {incoming_session_id}")
-
-                current_dapr_agent = dapr_agent_instances[incoming_session_id]
-                print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm_input}'.")
-
-                agent_response = await current_dapr_agent.run(content_for_llm_input)
-
-                if isinstance(agent_response, str):
-                    llm_reply_text = agent_response
-                elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str):
-                    llm_reply_text = agent_response.content
-                else:
-                    llm_reply_text = str(agent_response)
-
-                if not llm_reply_text.strip():
-                    llm_reply_text = "LLM agent did not return a text response."
+                    llm_reply_text = "LLM did not return a valid response."
 
             response_payload = {
-                "sender_id": current_dapr_agent.name, # Use the agent's actual name
+                "sender_id": AGENT_NAME, # LLM responses come from AGENT_NAME
                 "content": llm_reply_text, 
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
             }
-            print(f"Worker ({AGENT_ID}): Sending LLM reply via DaprAgent (OpenAI backend) as sender '{current_dapr_agent.name}': {response_payload}")
-
+            print(f"Worker ({AGENT_ID}): Sending LLM reply as sender '{AGENT_NAME}': {response_payload}")
+        
+        except APIError as e:
+            print(f"Worker ({AGENT_ID}): OpenAI API Error for session {incoming_session_id}: {e}")
+            llm_reply_text = f"OpenAI API Error: {e.message}"
+            response_payload = {
+                "sender_id": AGENT_NAME,
+                "content": llm_reply_text,
+                "timestamp": datetime.now().isoformat(),
+                "session_id": incoming_session_id
+            }
         except Exception as e:
-            print(f"Worker ({AGENT_ID}): Error invoking Dapr LLM agent (OpenAI backend) for agent '{current_dapr_agent.name}': {e}")
+            print(f"Worker ({AGENT_ID}): Error invoking OpenAI LLM for session {incoming_session_id}: {e}")
             traceback.print_exc()
             response_payload = {
-                "sender_id": AGENT_ID,
+                "sender_id": AGENT_NAME,
                 "content": "Error processing LLM request.",
                 "timestamp": datetime.now().isoformat(),
                 "session_id": incoming_session_id
