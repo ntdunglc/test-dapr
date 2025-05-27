@@ -10,10 +10,10 @@ apps:
     
   - appID: echo_worker # Renamed from worker
     appDirPath: ./agents/worker/ # Directory path remains the same
-    appPort: 8001
-    command: ["python", "-m", "uvicorn", "agent:app", "--host", "0.0.0.0", "--port", "8001", "--reload"] # Changed app:app to agent:app
+    appPort: 8003
+    command: ["python", "-m", "uvicorn", "agent:app", "--host", "0.0.0.0", "--port", "8003", "--reload"] # Changed app:app to agent:app
     
   - appID: chat
     appDirPath: ./agents/chat/
-    appPort: 8002
-    command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8002", "--reload"]
+    appPort: 8004
+    command: ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8004", "--reload"]
