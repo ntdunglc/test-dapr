@@ -56,24 +56,46 @@ async def _get_openai_messages_with_history(session_id: str, system_prompt: str,
     messages = [{"role": "system", "content": system_prompt}]
     
     try:
-        conversation_key = f"conversation-{session_id}"
-        state = await dapr_client.get_state(store_name=STATE_STORE_NAME, key=conversation_key)
+        print(f"Worker ({AGENT_ID}): Fetching chat history for session {session_id} from chat-agent.")
+        # Invoke the chat agent's history endpoint
+        response = await dapr_client.invoke_method(
+            app_id="chat",
+            method_name=f"chat/history/{session_id}",
+            http_verb="GET"
+        )
         
-        if state.data:
+        if response.data:
             try:
-                history_list = json.loads(state.data)
+                history_data = json.loads(response.data.decode('utf-8'))
+                history_list = history_data.get("messages", [])
+                
                 if isinstance(history_list, list):
                     for msg_data in history_list:
-                        role = "assistant" if msg_data.get("sender_id") == AGENT_NAME else "user"
+                        # Determine role based on sender_id.
+                        # User messages are typically from 'user-*' or 'UI'.
+                        # Assistant messages are from AGENT_NAME (this worker) or other agent names.
+                        # The chat agent stores 'role' which might be more direct, but sender_id is also reliable.
+                        sender = msg_data.get("sender_id")
+                        role = "user" # Default to user
+                        if sender == AGENT_NAME: # If message is from this LLM worker
+                            role = "assistant"
+                        # Add more sophisticated role determination if needed, e.g., based on a list of known agent names.
+                        # For now, simple user/assistant based on this worker's name.
+                        
                         content = msg_data.get("content")
                         if content is not None: # Ensure content exists
                             messages.append({"role": role, "content": content})
+                else:
+                    print(f"Worker ({AGENT_ID}): History for session {session_id} is not a list. Proceeding without history.")
             except json.JSONDecodeError:
-                print(f"Worker ({AGENT_ID}): Failed to decode history for session {session_id}. Proceeding without history.")
+                print(f"Worker ({AGENT_ID}): Failed to decode history JSON from chat-agent for session {session_id}. Proceeding without history.")
             except Exception as e:
-                print(f"Worker ({AGENT_ID}): Error processing history for session {session_id}: {e}. Proceeding without history.")
+                print(f"Worker ({AGENT_ID}): Error processing history from chat-agent for session {session_id}: {e}. Proceeding without history.")
+        else:
+            print(f"Worker ({AGENT_ID}): No history data received from chat-agent for session {session_id}. Proceeding without history.")
+            
     except Exception as e:
-        print(f"Worker ({AGENT_ID}): Error fetching history for session {session_id}: {e}. Proceeding without history.")
+        print(f"Worker ({AGENT_ID}): Error invoking chat-agent for history for session {session_id}: {e}. Proceeding without history.")
         
     messages.append({"role": "user", "content": current_user_message})
     return messages
