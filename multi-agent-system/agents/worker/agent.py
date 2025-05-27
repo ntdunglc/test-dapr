@@ -61,7 +61,8 @@ async def _get_openai_messages_with_history(session_id: str, system_prompt: str,
         response = await dapr_client.invoke_method(
             app_id="chat",
             method_name=f"chat/history/{session_id}",
-            http_verb="GET"
+            http_verb="GET",
+            data=None # Explicitly pass data=None for GET requests
         )
         
         if response.data:
