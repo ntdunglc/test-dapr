@@ -113,12 +113,12 @@ script-clear-sessions:
     python {{SCRIPTS_DIR}}/clear_sessions.py
 
 script-get-conversation-state session_id="":
-    {{% if session_id == "" %}}
+    {{ if session_id == "" }}
         @echo "Usage: just script-get-conversation-state <session_id>"
         @exit 1
-    {{% else %}}
+    {{ else }}
         python {{SCRIPTS_DIR}}/get_conversation_state.py {{session_id}}
-    {{% endif %}}
+    {{ endif }}
 
 script-test-gemini:
     python {{SCRIPTS_DIR}}/test_gemini_api.py
