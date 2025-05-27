@@ -113,7 +113,7 @@ script-clear-sessions:
     python {{SCRIPTS_DIR}}/clear_sessions.py
 
 script-get-conversation-state session_id="":
-    {{ if session_id == "" }}
+    {{ if session_id == ""}}
         @echo "Usage: just script-get-conversation-state <session_id>"
         @exit 1
     {{ else }}
