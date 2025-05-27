@@ -332,7 +332,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
     except TypeError:
         print(f"Worker Agent: chat message_data is not a dictionary. Data: {repr(message_data)}")
         return {"status": "DROP", "error": "chat_data not a dictionary"}
-    
+
     # Process message and potentially respond
     original_content = message_data.get("content", "")
     # The incoming_session_id could be a regular session_id or a job_id if the chat is job-focused
@@ -359,7 +359,6 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
             print(f"Worker ({AGENT_ID}): Skipping self-sent @echo command.")
             return {"status": "SUCCESS"} # Successfully did nothing
 
-
     # Determine if it's an explicit LLM call and prepare content for LLM
     is_explicit_llm_call = False
     # Default to original stripped content if not an explicit call but active_agent will handle it
@@ -385,7 +384,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
         # If it's an implicit call (is_active_agent is true, is_explicit_llm_call is false),
         # content_for_llm_input is already original_content.strip().
         # If it's an explicit call, content_for_llm_input has been adjusted.
-        
+
         # If the LLM is being invoked and the resulting content for it is empty, then do nothing.
         if not content_for_llm_input:
             print(f"Worker ({AGENT_ID}): No content for LLM. Explicit call: {is_explicit_llm_call}, Active agent: {is_active_agent}. Session: {incoming_session_id}")
@@ -404,10 +403,9 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                 if incoming_session_id not in dapr_agent_instances:
                     print(f"Worker ({AGENT_ID}): Creating new DaprAgent (OpenAI backend) for session {incoming_session_id}")
                     session_memory = ConversationDaprStateMemory(
-                        store_name="statestore", 
-                        session_id=incoming_session_id,
-                        key_prefix="conversation-", # Align with chat agent's storage key
-                        dapr_client=dapr_client
+                        store_name="statestore",
+                        session_id=f"conversation-{incoming_session_id}",
+                        dapr_client=dapr_client,
                     )
                     agent_instance = DaprAgent(
                         name=f"OpenAIAgentSession-{incoming_session_id[:6]}",
@@ -425,12 +423,12 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
                     dapr_agent_instances[incoming_session_id] = agent_instance
                 else:
                     print(f"Worker ({AGENT_ID}): Using existing DaprAgent (OpenAI backend) for session {incoming_session_id}")
-                
+
                 current_dapr_agent = dapr_agent_instances[incoming_session_id]
                 print(f"Worker ({AGENT_ID}): Invoking DaprAgent (OpenAI backend) for session {incoming_session_id} with input: '{content_for_llm_input}'.")
-                
+
                 agent_response = await current_dapr_agent.run(content_for_llm_input)
-                
+
                 if isinstance(agent_response, str):
                     llm_reply_text = agent_response
                 elif hasattr(agent_response, 'content') and isinstance(agent_response.content, str):
@@ -440,7 +438,7 @@ async def handle_chat_message(event: CustomTopicEvent): # Use CustomTopicEvent
 
                 if not llm_reply_text.strip():
                     llm_reply_text = "LLM agent did not return a text response."
-            
+
             response_payload = {
                 "sender_id": current_dapr_agent.name, # Use the agent's actual name
                 "content": llm_reply_text, 
